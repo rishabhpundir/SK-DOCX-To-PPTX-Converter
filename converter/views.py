@@ -7,7 +7,7 @@ from django.views.generic import FormView, DetailView
 import os
 from .models import ConversionJob
 from .forms import ConversionForm
-from .converters import converter_manager
+from converter.converters import converter_manager
 
 
 class HomeView(FormView):

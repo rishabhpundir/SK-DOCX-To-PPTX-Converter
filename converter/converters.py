@@ -171,8 +171,8 @@ class ConverterManager:
             
             return output_path
             
-        # except ImportError:
-        #     raise ConversionError("MCQ Type 3 converter script not found. Please ensure mcq3_converter.py is in converter/conversion_scripts/")
+        except ImportError:
+            raise ConversionError("MCQ Type 3 converter script not found. Please ensure mcq3_converter.py is in converter/conversion_scripts/")
         except Exception as e:
             raise ConversionError(f"MCQ Type 3 conversion error: {str(e)}")
 

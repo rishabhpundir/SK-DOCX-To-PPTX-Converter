@@ -12,8 +12,9 @@ import numpy as np
 from pdf2image import convert_from_path
 import tempfile
 import subprocess
+from django.conf import settings
 
-OUTPUT_DIR = os.path.join((os.path.dirname(os.path.abspath(__file__)), "media"), "extracted_images")
+OUTPUT_DIR = os.path.join(settings.BASE_DIR, "media", "extracted_images")
 
 def parse_word_document(doc_path):
     """Parse the Word document and extract questions with their arrangements and directions"""
