@@ -14,14 +14,25 @@ def parse_word_document(doc_path):
     current_direction = None
     current_question = None
     
+    text_info = False
     for para in doc.paragraphs:
         text = para.text.strip()
-        
+
         if not text:
             continue
+        
+        if text_info:
+            text_info = False
+            content_blocks.append({
+                    'type': 'info',
+                    'direction': current_direction,
+                    'content': text
+                })
+            
             
         # Check if it's a direction
         if "Directions for questions" in text or "DIRECTIONS:" in text:
+            text_info = True
             # Save previous question if exists
             if current_question:
                 content_blocks.append({
@@ -59,13 +70,18 @@ def parse_word_document(doc_path):
             'direction': current_direction,
             'content': current_question
         })
-    
     return content_blocks
 
 def create_slide(prs, question_data):
     """Create a slide with the MCQ question"""
     slide_layout = prs.slide_layouts[5]  # Blank slide
     slide = prs.slides.add_slide(slide_layout)
+
+    for shape in slide.shapes:
+        if shape == slide.shapes.title:
+            sp = shape
+            slide.shapes._spTree.remove(sp._element)
+            break
     
     # Set black background
     background = slide.background
@@ -79,7 +95,7 @@ def create_slide(prs, question_data):
     
     text_left = slide_width * 0.4  # Start at 40% from left
     text_width = slide_width * 0.58  # Use 58% width (leaving 2% margin)
-    text_top = Inches(1.5)  # Start 1 inch from top
+    text_top = Inches(1)  # Start 1 inch from top
     text_height = slide_height - Inches(1.5)  # Leave some bottom margin
     
     # Add text box
@@ -95,7 +111,7 @@ def create_slide(prs, question_data):
     text_frame.word_wrap = True
     
     # Add direction if exists
-    if question_data['direction']:
+    if question_data['direction'] and question_data['type'] == 'info':
         p = text_frame.add_paragraph()
         p.text = question_data['direction']
         p.font.name = 'Arial'
@@ -109,7 +125,10 @@ def create_slide(prs, question_data):
         p.text = ""
     
     # Process question content
-    lines = question_data['content'].split('\n')
+    if question_data['type'] == 'question':
+        lines = question_data['content'].split('\n')
+    else:
+        lines = [question_data['content']]
     
     for i, line in enumerate(lines):
         if i == 0:  # First paragraph (no need to add new)
