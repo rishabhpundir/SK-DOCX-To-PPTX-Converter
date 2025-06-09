@@ -6,15 +6,17 @@ from uuid import uuid4
 
 def upload_to_input(instance, filename):
     """Generate unique path for input files"""
-    ext = filename.split('.')[-1]
-    filename = f"{uuid4().hex}.{ext}"
+    fname, ext = filename.rsplit(".", 1)
+    uhex = uuid4().hex[:8]
+    filename = f"{fname}_{uhex}.{ext}"
     return os.path.join('inputs', filename)
 
 
 def upload_to_output(instance, filename):
     """Generate unique path for output files"""
-    ext = filename.split('.')[-1]
-    filename = f"{uuid4().hex}.{ext}"
+    fname, ext = filename.rsplit(".", 1)
+    uhex = uuid4().hex[:8]
+    filename = f"{fname}_{uhex}.{ext}"
     return os.path.join('outputs', filename)
 
 

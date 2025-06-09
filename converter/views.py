@@ -56,8 +56,8 @@ class HomeView(FormView):
         # Add template descriptions
         context['template_descriptions'] = {
             'passage': 'For documents containing passages and reading comprehension questions',
-            'mcq1': 'For standard MCQ format with numbered questions and options',
-            'mcq2': 'For MCQs with arrangements, directions, and circular diagrams',
+            'mcq1': 'For standard MCQ format with numbered questions and options (dual column structure)',
+            'mcq2': 'For MCQs with arrangements, directions, and circular diagrams (dual column structure)',
             'mcq3': 'For simple MCQ format with basic question-answer structure',
         }
         
