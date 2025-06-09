@@ -1,0 +1,203 @@
+{% extends 'base.html' %}
+{% load converter_tags %}
+
+{% block title %}{{ title }} - Word to PPTX Converter{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center fade-in">
+    <div class="col-lg-8">
+        <div class="card">
+            <div class="card-header bg-primary text-white">
+                <h3 class="mb-0">
+                    <i class="fas fa-upload me-2"></i>
+                    Convert Word Document to PowerPoint
+                </h3>
+            </div>
+            <div class="card-body p-4">
+                <form method="post" enctype="multipart/form-data" id="conversionForm">
+                    {% csrf_token %}
+                    
+                    <!-- File Upload Section -->
+                    <div class="mb-4">
+                        <label for="{{ form.input_file.id_for_label }}" class="form-label fw-bold">
+                            <i class="fas fa-file-word me-2"></i>
+                            {{ form.input_file.label }}
+                        </label>
+                        
+                        <div class="file-upload-wrapper">
+                            <input type="file" 
+                                   id="{{ form.input_file.id_for_label }}" 
+                                   name="{{ form.input_file.name }}"
+                                   class="file-upload-input"
+                                   accept=".docx"
+                                   required>
+                            <label for="{{ form.input_file.id_for_label }}" class="file-upload-label" id="fileLabel">
+                                <i class="fas fa-cloud-upload-alt fa-3x mb-3 text-muted"></i>
+                                <p class="mb-0">Click to browse or drag and drop your Word document here</p>
+                                <small class="text-muted">{{ form.input_file.help_text }}</small>
+                            </label>
+                        </div>
+                        
+                        {% if form.input_file.errors %}
+                            <div class="text-danger mt-2">
+                                {{ form.input_file.errors }}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Template Selection Section -->
+                    <div class="mb-4">
+                        <label class="form-label fw-bold">
+                            <i class="fas fa-palette me-2"></i>
+                            {{ form.template_type.label }}
+                        </label>
+                        <p class="text-muted small">{{ form.template_type.help_text }}</p>
+                        
+                        <div class="template-options">
+                            {% for value, label in form.template_type.field.choices %}
+                                <div class="template-option">
+                                    <div class="form-check">
+                                        <input class="form-check-input" 
+                                               type="radio" 
+                                               name="{{ form.template_type.name }}" 
+                                               id="template_{{ value }}" 
+                                               value="{{ value }}"
+                                               {% if forloop.first %}checked{% endif %}
+                                               required>
+                                        <label class="form-check-label d-block" for="template_{{ value }}">
+                                            <strong>{{ label }}</strong>
+                                            {% if template_descriptions %}
+                                                <br>
+                                                <small class="text-muted">
+                                                    {{ template_descriptions|get_item:value }}
+                                                </small>
+                                            {% endif %}
+                                        </label>
+                                    </div>
+                                </div>
+                            {% endfor %}
+                        </div>
+                        
+                        {% if form.template_type.errors %}
+                            <div class="text-danger mt-2">
+                                {{ form.template_type.errors }}
+                            </div>
+                        {% endif %}
+                    </div>
+                    
+                    <!-- Submit Button -->
+                    <div class="d-grid">
+                        <button type="submit" class="btn btn-primary btn-lg" id="submitBtn">
+                            <i class="fas fa-magic me-2"></i>
+                            Convert to PowerPoint
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Features Section -->
+        <div class="row mt-5">
+            <div class="col-md-4 mb-3">
+                <div class="text-center">
+                    <i class="fas fa-bolt fa-3x text-warning mb-3"></i>
+                    <h5>Fast Conversion</h5>
+                    <p class="text-muted">Quick and efficient conversion process</p>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="text-center">
+                    <i class="fas fa-shield-alt fa-3x text-success mb-3"></i>
+                    <h5>Secure Processing</h5>
+                    <p class="text-muted">Your files are processed securely</p>
+                </div>
+            </div>
+            <div class="col-md-4 mb-3">
+                <div class="text-center">
+                    <i class="fas fa-download fa-3x text-info mb-3"></i>
+                    <h5>Easy Download</h5>
+                    <p class="text-muted">Download your converted file instantly</p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // File upload handling
+    const fileInput = document.getElementById('{{ form.input_file.id_for_label }}');
+    const fileLabel = document.getElementById('fileLabel');
+    
+    fileInput.addEventListener('change', function(e) {
+        const fileName = e.target.files[0]?.name;
+        if (fileName) {
+            fileLabel.classList.add('has-file');
+            fileLabel.innerHTML = `
+                <i class="fas fa-file-word fa-3x mb-3 text-success"></i>
+                <p class="mb-0 text-success">Selected: ${fileName}</p>
+                <small class="text-muted">Click to change file</small>
+            `;
+        } else {
+            fileLabel.classList.remove('has-file');
+            fileLabel.innerHTML = `
+                <i class="fas fa-cloud-upload-alt fa-3x mb-3 text-muted"></i>
+                <p class="mb-0">Click to browse or drag and drop your Word document here</p>
+                <small class="text-muted">{{ form.input_file.help_text }}</small>
+            `;
+        }
+    });
+    
+    // Drag and drop functionality
+    fileLabel.addEventListener('dragover', function(e) {
+        e.preventDefault();
+        this.style.backgroundColor = '#e9ecef';
+        this.style.borderColor = '#3498db';
+    });
+    
+    fileLabel.addEventListener('dragleave', function(e) {
+        e.preventDefault();
+        this.style.backgroundColor = '#f8f9fa';
+        this.style.borderColor = '#dee2e6';
+    });
+    
+    fileLabel.addEventListener('drop', function(e) {
+        e.preventDefault();
+        this.style.backgroundColor = '#f8f9fa';
+        this.style.borderColor = '#dee2e6';
+        
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            fileInput.files = files;
+            fileInput.dispatchEvent(new Event('change'));
+        }
+    });
+    
+    // Form submission handling
+    const form = document.getElementById('conversionForm');
+    const submitBtn = document.getElementById('submitBtn');
+    
+    form.addEventListener('submit', function(e) {
+        if (!fileInput.files[0]) {
+            e.preventDefault();
+            alert('Please select a Word document to convert.');
+            return;
+        }
+        
+        // Show loading state
+        submitBtn.disabled = true;
+        submitBtn.innerHTML = `
+            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+            Converting... Please wait
+        `;
+    });
+</script>
+
+<!-- Template for Django template filter -->
+<script>
+    // Custom template filter implementation for template descriptions
+    if (!window.django) window.django = {};
+    django.template_descriptions = {{ template_descriptions|safe|default:"{}" }};
+</script>
+{% endblock %}
