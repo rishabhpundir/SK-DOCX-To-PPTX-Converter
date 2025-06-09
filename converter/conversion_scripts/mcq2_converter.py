@@ -178,7 +178,7 @@ def extract_images_from_docx(doc_path, output_dir="extracted_images"):
     
     return extracted_images
 
-def create_arrangement_slide(prs, arrangement_text, direction_text=None):
+def create_arrangement_slide(prs, arrangement_text, direction_text=None, num=0):
     """Create a slide with just the arrangement text"""
     slide_layout = prs.slide_layouts[5]  # Blank slide
     slide = prs.slides.add_slide(slide_layout)
@@ -209,13 +209,19 @@ def create_arrangement_slide(prs, arrangement_text, direction_text=None):
     text_frame = textbox.text_frame
     text_frame.clear()
     text_frame.word_wrap = True
-    
+
+    for shape in slide.shapes:
+        if shape == slide.shapes.title:
+            sp = shape
+            slide.shapes._spTree.remove(sp._element)
+            break
+
     # Add direction if exists
-    if direction_text:
+    if direction_text and num == 0:
         p = text_frame.add_paragraph()
         p.text = direction_text
         p.font.name = 'Arial'
-        p.font.size = Pt(18)
+        p.font.size = Pt(25)
         p.font.color.rgb = RGBColor(255, 255, 255)
         p.font.bold = True
         p.alignment = PP_ALIGN.LEFT
@@ -225,13 +231,10 @@ def create_arrangement_slide(prs, arrangement_text, direction_text=None):
     p = text_frame.add_paragraph()
     p.text = arrangement_text.strip()
     p.font.name = 'Arial'
-    p.font.size = Pt(18)
+    p.font.size = Pt(25)
     p.font.color.rgb = RGBColor(255, 255, 255)
     p.font.bold = True
     p.alignment = PP_ALIGN.LEFT
-    
-    # Add logo placeholder
-    add_logo_placeholder(slide)
     
     return slide
 
@@ -283,45 +286,29 @@ def create_question_slide(prs, question_data, diagram_path=None):
     p = text_frame.add_paragraph()
     p.text = question_data['content']
     p.font.name = 'Arial'
-    p.font.size = Pt(18)
+    p.font.size = Pt(25)
     p.font.color.rgb = RGBColor(255, 255, 255)
     p.alignment = PP_ALIGN.LEFT
     p.space_after = Pt(8)
+    
+    for shape in slide.shapes:
+        if shape == slide.shapes.title:
+            sp = shape
+            slide.shapes._spTree.remove(sp._element)
+            break
     
     # Add options
     for option in question_data['options']:
         p = text_frame.add_paragraph()
         p.text = option
         p.font.name = 'Arial'
-        p.font.size = Pt(18)
+        p.font.size = Pt(25)
         p.font.color.rgb = RGBColor(255, 255, 0)  # Yellow for options
         p.alignment = PP_ALIGN.LEFT
         p.space_after = Pt(4)
-    
-    # Add logo placeholder
-    add_logo_placeholder(slide)
-    
+
     return slide
 
-def add_logo_placeholder(slide):
-    """Add a logo placeholder to the slide"""
-    logo_size = Inches(0.8)
-    logo_left = Inches(0.5)
-    logo_top = Inches(0.5)
-    
-    # Add a circle as logo placeholder
-    logo = slide.shapes.add_shape(
-        autoshape_type_id=32,  # Circle
-        left=logo_left,
-        top=logo_top,
-        width=logo_size,
-        height=logo_size
-    )
-    
-    # Style the logo
-    logo.fill.solid()
-    logo.fill.fore_color.rgb = RGBColor(255, 255, 255)
-    logo.line.fill.background()
 
 def convert_word_to_ppt(word_path, ppt_path):
     """Main function to convert Word document to PowerPoint"""
@@ -354,7 +341,7 @@ def convert_word_to_ppt(word_path, ppt_path):
         # If there's an arrangement, create a separate slide for it
         if question.get('arrangement'):
             print(f"Creating arrangement slide {slide_count + 1}...")
-            create_arrangement_slide(prs, question['arrangement'], current_direction)
+            create_arrangement_slide(prs, question['arrangement'], current_direction, i)
             slide_count += 1
         
         # Create the question slide
