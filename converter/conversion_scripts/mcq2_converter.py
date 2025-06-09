@@ -13,6 +13,8 @@ from pdf2image import convert_from_path
 import tempfile
 import subprocess
 
+OUTPUT_DIR = os.path.join((os.path.dirname(os.path.abspath(__file__)), "media"), "extracted_images")
+
 def parse_word_document(doc_path):
     """Parse the Word document and extract questions with their arrangements and directions"""
     doc = Document(doc_path)
@@ -90,9 +92,9 @@ def parse_word_document(doc_path):
     
     return content_blocks
 
-def extract_images_from_docx(doc_path, output_dir="extracted_images"):
+def extract_images_from_docx(doc_path, output_dir=OUTPUT_DIR):
     """Extract images and diagrams from the Word document"""
-    os.makedirs(output_dir, exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
     extracted_images = []
     
     try:
@@ -371,9 +373,9 @@ def convert_word_to_ppt(word_path, ppt_path):
     print(f"Conversion complete! Created {slide_count} slides.")
     
     # Cleanup extracted images if needed
-    if extracted_images and os.path.exists("extracted_images"):
+    if extracted_images and os.path.exists(OUTPUT_DIR):
         import shutil
-        shutil.rmtree("extracted_images")
+        shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
 
 # Main execution
 if __name__ == "__main__":
