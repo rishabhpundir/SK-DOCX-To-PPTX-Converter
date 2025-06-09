@@ -38,7 +38,6 @@ class WordToPowerPointConverter:
         sections = {
             'directions': '',
             'passages': [],
-            'questions': []
         }
         
         # Extract directions
@@ -53,20 +52,17 @@ class WordToPowerPointConverter:
         for passage_num, passage_text in passage_matches:
             # Clean up passage text
             passage_text = re.sub(r'\[Extracted.*?\]', '', passage_text, flags=re.DOTALL)
+            passage_content, questions = passage_text.strip().split('\n\n\n\n', 1)
             sections['passages'].append({
                 'number': passage_num,
-                'content': passage_text.strip().split('\n\n\n\n', 1)[0]
+                'content': passage_content,
             })
         
-        # Extract questions with their options
-        question_pattern = r'([\s\n](\d{1,2})\.\s.*?)(?=(?:[\s\n]\d{1,2}\.\s|PASSAGE|$))'
-        question_matches = re.findall(question_pattern, content, re.DOTALL)
-
-        for question in question_matches:
-            # Clean up question formatting
-            question = re.sub(r'\n+', '\n', question[0].strip())
-            sections['questions'].append(question.strip())
-        
+            # Extract questions with their options
+            pattern = r'(?=(?:^|\n)\d{1,2}\.\t)'
+            question_matches = re.split(pattern, questions.strip())
+            question_matches = [part.strip() for part in question_matches if part.strip()]
+            sections['passages'][-1]['questions'] = question_matches
         return sections
 
     def create_title_slide(self, prs, title, subtitle=""):
@@ -85,17 +81,41 @@ class WordToPowerPointConverter:
         self.apply_slide_formatting(slide)
         return slide
 
-    def create_content_slide(self, prs, title, content, is_passage=False):
+    def create_content_slide(self, prs, title, content, is_passage=False, is_last_passage_slide=False):
         """Create a formatted content slide"""
         slide_layout = prs.slide_layouts[1]
         slide = prs.slides.add_slide(slide_layout)
         
-        title_shape = slide.shapes.title
-        title_shape.text = title
+        if title.strip() != "":
+            title_shape = slide.shapes.title
+            title_shape.text = title
+        else:
+            for shape in slide.shapes:
+                if shape == slide.shapes.title:
+                    sp = shape
+                    slide.shapes._spTree.remove(sp._element)
+                    break
         
         if is_passage:
             # For passage slides, use custom layout on the right half
-            self.create_passage_content(slide, content)
+            self.create_passage_content(slide, title, content)
+            
+            # Add "Continued" footer only on continuation slides, not on last slide
+            if title.strip() == "" and not is_last_passage_slide:
+                left = Inches(11.25)  # Align with passage content
+                top = Inches(6.5)
+                width = Inches(8)
+                height = Inches(0.5)
+
+                footer = slide.shapes.add_textbox(left, top, width, height)
+                text_frame = footer.text_frame
+                text_frame.text = "Continued"
+                p = text_frame.paragraphs[0]
+                p.alignment = PP_ALIGN.RIGHT
+                p.font.color.rgb = RGBColor(255, 255, 255)
+                run = p.runs[0]
+                run.font.size = Pt(22)
+                run.font.name = "Arial"
         else:
             # For other content, use standard layout
             content_shape = slide.placeholders[1]
@@ -104,14 +124,14 @@ class WordToPowerPointConverter:
             
             p = text_frame.paragraphs[0]
             p.text = content
-            p.font.size = Pt(14)
-            p.alignment = PP_ALIGN.LEFT
+            p.font.size = Pt(18)
+            p.alignment = PP_ALIGN.RIGHT
         
         # Apply formatting
         self.apply_slide_formatting(slide)
         return slide
 
-    def create_passage_content(self, slide, content):
+    def create_passage_content(self, slide, title, content):
         """Create passage content in the right half of the slide"""
         # Remove default content placeholder if it exists
         shapes_to_remove = []
@@ -125,40 +145,63 @@ class WordToPowerPointConverter:
         
         # Add new text box on the right half of the slide
         left = Inches(5.0)  # Start from middle of slide
-        top = Inches(1.5)   # Leave space for title
+        if title.strip() != "":
+                top = Inches(1.5)
+        else:
+                top = Inches(0.5)
         width = Inches(8)  # Right half width
-        height = Inches(5.0)  # Most of slide height
+        height = Inches(5.5)  # Increased from 5.0 to use more vertical space
         
         textbox = slide.shapes.add_textbox(left, top, width, height)
         text_frame = textbox.text_frame
         
         # Configure text frame
         text_frame.word_wrap = True
-        text_frame.margin_left = Inches(0.25)
-        text_frame.margin_right = Inches(0.25)
-        text_frame.margin_top = Inches(0.25)
-        text_frame.margin_bottom = Inches(0.25)
-        text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+        text_frame.margin_left = Inches(0.1)
+        text_frame.margin_right = Inches(0.1)
+        text_frame.margin_top = Inches(0.1)
+        text_frame.margin_bottom = Inches(0.1)
+        text_frame.vertical_anchor = MSO_ANCHOR.TOP
         
         # Add content
         p = text_frame.paragraphs[0]
         p.text = content
         p.alignment = PP_ALIGN.JUSTIFY
-        p.font.size = Pt(18)
+        p.font.size = Pt(22)
         p.font.color.rgb = RGBColor(255, 255, 255)  # White text
         p.font.name = 'Arial'
 
-    def create_questions_slide(self, prs, title, questions_list):
+    def create_questions_slide(self, prs, questions_list):
         """Create a formatted slide with questions"""
         slide_layout = prs.slide_layouts[1]
         slide = prs.slides.add_slide(slide_layout)
         
-        title_shape = slide.shapes.title
-        content_shape = slide.placeholders[1]
+        # Remove title shape
+        for shape in slide.shapes:
+            if shape == slide.shapes.title:
+                sp = shape
+                slide.shapes._spTree.remove(sp._element)
+                break
         
-        title_shape.text = title
+        # Remove default content placeholder
+        shapes_to_remove = []
+        for shape in slide.shapes:
+            if shape.has_text_frame:
+                shapes_to_remove.append(shape)
         
-        text_frame = content_shape.text_frame
+        for shape in shapes_to_remove:
+            sp = shape._sp
+            sp.getparent().remove(sp)
+        
+        # Add new text box starting 5 inches from left
+        left = Inches(5.0)
+        top = Inches(1.0)  # Start from top
+        width = Inches(8)
+        height = Inches(6.0)
+        
+        textbox = slide.shapes.add_textbox(left, top, width, height)
+        text_frame = textbox.text_frame
+        text_frame.word_wrap = True
         text_frame.clear()
         
         for i, question in enumerate(questions_list):
@@ -166,11 +209,12 @@ class WordToPowerPointConverter:
                 p = text_frame.add_paragraph()
             else:
                 p = text_frame.paragraphs[0]
-            
             p.text = question
-            p.font.size = Pt(12)
+            p.font.size = Pt(22)
             p.space_after = Pt(12)
-            p.alignment = PP_ALIGN.LEFT
+            p.alignment = PP_ALIGN.LEFT  # Left align within the right-positioned textbox
+            p.font.color.rgb = RGBColor(255, 255, 255)
+            p.font.name = 'Arial'
         
         # Apply formatting
         self.apply_slide_formatting(slide)
@@ -211,12 +255,15 @@ class WordToPowerPointConverter:
         
         created_slides = []
         for i, slide_content in enumerate(slide_contents):
-            if i == 0:
+            if i == 0:    
                 title = passage_num
             else:
-                title = f"{passage_num} - Continued"
+                title = ""
             
-            slide = self.create_content_slide(prs, title, slide_content, is_passage=True)
+            # Check if this is the last slide for this passage
+            is_last_slide = (i == len(slide_contents) - 1)
+            
+            slide = self.create_content_slide(prs, title, slide_content, is_passage=True, is_last_passage_slide=is_last_slide)
             created_slides.append(slide)
         
         return created_slides
@@ -237,7 +284,7 @@ class WordToPowerPointConverter:
                 paragraph.font.color.rgb = RGBColor(255, 255, 255)  # White
                 paragraph.font.bold = True
                 paragraph.font.name = 'Arial'
-                paragraph.alignment = PP_ALIGN.CENTER
+                paragraph.alignment = PP_ALIGN.RIGHT
         
         # Format content shapes
         for shape in slide.shapes:
@@ -253,10 +300,10 @@ class WordToPowerPointConverter:
                 for paragraph in text_frame.paragraphs:
                     # Set font size based on content type
                     if not is_mcq and slide.shapes.title and "PASSAGE" in slide.shapes.title.text.upper():
-                        paragraph.font.size = Pt(18)
+                        paragraph.font.size = Pt(22)
                         paragraph.alignment = PP_ALIGN.JUSTIFY
                     else:
-                        paragraph.font.size = Pt(18)
+                        paragraph.font.size = Pt(22)
                         paragraph.alignment = PP_ALIGN.LEFT
                     
                     paragraph.font.color.rgb = RGBColor(255, 255, 255)  # White
@@ -336,16 +383,15 @@ class WordToPowerPointConverter:
         for passage in sections['passages']:
             self.create_passage_slides(prs, passage)
         
-        # Create question slides
-        print(f"❓ Processing {len(sections['questions'])} questions...")
-        questions_per_slide = 1
-        question_groups = [sections['questions'][i:i + questions_per_slide] 
-                          for i in range(0, len(sections['questions']), questions_per_slide)]
-        
-        for i, question_group in enumerate(question_groups):
-            start_q = i * questions_per_slide + 1
-            title = f"Question {start_q}"
-            self.create_questions_slide(prs, title, question_group)
+            # Create question slides
+            print(f"❓ Processing {len(passage['questions'])} questions...")
+            questions_per_slide = 1
+            question_groups = [passage['questions'][i:i + questions_per_slide] 
+                            for i in range(0, len(passage['questions']), questions_per_slide)]
+            
+            for i, question_group in enumerate(question_groups):
+                start_q = i * questions_per_slide + 1
+                self.create_questions_slide(prs, question_group)
         
         # Save presentation
         try:

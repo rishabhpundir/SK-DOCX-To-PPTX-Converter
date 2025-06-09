@@ -181,5 +181,6 @@ bin/
 chromium*/
 .history/
 test.py
+.DS_Store
 media/
 extracted_images/
