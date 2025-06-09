@@ -10,6 +10,25 @@ For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 
+import sys
+import logging
+
+class StreamToLogger:
+    def __init__(self, logger, level=logging.INFO):
+        self.logger = logger
+        self.level = level
+
+    def write(self, message):
+        if message.strip():  # skip empty lines
+            self.logger.log(self.level, message.strip())
+
+    def flush(self):
+        pass  # Required for compatibility
+
+stdout_logger = logging.getLogger('STDOUT')
+sys.stdout = StreamToLogger(stdout_logger, logging.INFO)
+
+
 import os
 from pathlib import Path
 from dotenv import load_dotenv
@@ -166,4 +185,48 @@ MESSAGE_TAGS = {
 # Optional: Add cleanup settings for old files
 # You can create a management command to clean up old conversion files
 CONVERSION_FILE_RETENTION_DAYS = 1  # Keep files for 1 day
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+
+    'formatters': {
+        'verbose': {
+            'format': '[{levelname}] {asctime} {name} - {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '[{levelname}] {message}',
+            'style': '{',
+        },
+    },
+
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+            'level': 'INFO',  # Console logs everything from INFO and up
+        },
+        'file': {
+            'class': 'logging.FileHandler',
+            'filename': 'logs.log',
+            'formatter': 'verbose',
+            'level': 'INFO',
+        },
+    },
+
+    'root': {
+        'handlers': ['console', 'file'],
+        'level': 'INFO',
+    },
+
+    'loggers': {
+        'STDOUT': {
+            'handlers': ['console', 'file'],
+            'level': 'DEBUG',
+            'propagate': False,
+        }
+    }
+    }
+
 
