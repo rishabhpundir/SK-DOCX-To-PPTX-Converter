@@ -24,10 +24,10 @@ class ConversionJob(models.Model):
     """Model to track conversion jobs"""
     
     TEMPLATE_CHOICES = [
-        ('passage', 'Passage'),
-        ('mcq1', 'MCQ Type 1'),
-        ('mcq2', 'MCQ Type 2'),
-        ('mcq3', 'MCQ Type 3'),
+        ('passage', 'English'),
+        ('mcq1', 'Quantitative Ability Workshop Handout'),
+        ('mcq2', 'Logical Ability Workshop Handout'),
+        ('mcq3', 'Direction Sense for IBPS RRB PO & Clerk Prelim Exam'),
     ]
     
     STATUS_CHOICES = [

@@ -9,7 +9,7 @@ import os
 import argparse
 from pptx import Presentation
 from pptx.util import Inches, Pt
-from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR, MSO_AUTO_SIZE
 from pptx.dml.color import RGBColor
 from pptx.enum.dml import MSO_THEME_COLOR
 from docx import Document
@@ -81,15 +81,51 @@ class WordToPowerPointConverter:
         self.apply_slide_formatting(slide)
         return slide
 
-    def create_content_slide(self, prs, title, content, is_passage=False, is_last_passage_slide=False):
+    def create_content_slide(self, num, prs, directions, title, content, is_passage=False, is_last_passage_slide=False):
         """Create a formatted content slide"""
         slide_layout = prs.slide_layouts[1]
         slide = prs.slides.add_slide(slide_layout)
         
         if title.strip() != "":
+            # Use and modify the default title shape
             title_shape = slide.shapes.title
-            title_shape.text = title
+            
+            # Reposition and resize the title shape to match your alignment
+            title_shape.left = Inches(5.0)  # Same as content
+            title_shape.top = Inches(0.5)   # Start at top
+            title_shape.width = Inches(8)   # Same width as content
+            title_shape.height = Inches(1.0)  # Height just for title
+            
+            # Configure title text formatting
+            title_text_frame = title_shape.text_frame
+            title_text_frame.word_wrap = True
+            
+            # Clear the text frame
+            title_text_frame.clear()
+            
+            # Add directions paragraph (font size 16) only if num == 0
+            if num == 0 and directions.strip():
+                directions_paragraph = title_text_frame.paragraphs[0]
+                directions_paragraph.text = directions
+                directions_paragraph.alignment = PP_ALIGN.JUSTIFY
+                directions_paragraph.runs[0].font.size = Pt(16)
+                directions_paragraph.runs[0].font.color.rgb = RGBColor(255, 255, 255)
+                
+                
+                # Add title paragraph (font size 25)
+                title_paragraph = title_text_frame.add_paragraph()
+            else:
+                # If num != 0 or no directions, use the first paragraph for title
+                title_paragraph = title_text_frame.paragraphs[0]
+            
+            # Set title text and formatting
+            title_paragraph.text = title
+            title_paragraph.alignment = PP_ALIGN.JUSTIFY
+            title_paragraph.runs[0].font.size = Pt(22)
+            title_paragraph.runs[0].font.color.rgb = RGBColor(255, 255, 255)
+            
         else:
+            # Remove the default title shape if no title
             for shape in slide.shapes:
                 if shape == slide.shapes.title:
                     sp = shape
@@ -98,15 +134,13 @@ class WordToPowerPointConverter:
         
         if is_passage:
             # For passage slides, use custom layout on the right half
-            self.create_passage_content(slide, title, content)
-            
+            self.create_passage_content(directions, slide, title, content)
             # Add "Continued" footer only on continuation slides, not on last slide
-            if title.strip() == "" and not is_last_passage_slide:
+            if not is_last_passage_slide:
                 left = Inches(11.25)  # Align with passage content
-                top = Inches(6.5)
+                top = Inches(6.80)
                 width = Inches(8)
                 height = Inches(0.5)
-
                 footer = slide.shapes.add_textbox(left, top, width, height)
                 text_frame = footer.text_frame
                 text_frame.text = "Continued"
@@ -114,14 +148,13 @@ class WordToPowerPointConverter:
                 p.alignment = PP_ALIGN.RIGHT
                 p.font.color.rgb = RGBColor(255, 255, 255)
                 run = p.runs[0]
-                run.font.size = Pt(22)
+                run.font.size = Pt(18)
                 run.font.name = "Arial"
         else:
             # For other content, use standard layout
             content_shape = slide.placeholders[1]
             text_frame = content_shape.text_frame
             text_frame.clear()
-            
             p = text_frame.paragraphs[0]
             p.text = content
             p.font.size = Pt(18)
@@ -131,7 +164,7 @@ class WordToPowerPointConverter:
         self.apply_slide_formatting(slide)
         return slide
 
-    def create_passage_content(self, slide, title, content):
+    def create_passage_content(self, directions, slide, title, content):
         """Create passage content in the right half of the slide"""
         # Remove default content placeholder if it exists
         shapes_to_remove = []
@@ -245,7 +278,7 @@ class WordToPowerPointConverter:
         
         return slide_contents
 
-    def create_passage_slides(self, prs, passage):
+    def create_passage_slides(self, prs, passage, directions):
         """Create one or more slides for a passage with proper content distribution"""
         passage_num = passage['number']
         content = passage['content']
@@ -263,7 +296,7 @@ class WordToPowerPointConverter:
             # Check if this is the last slide for this passage
             is_last_slide = (i == len(slide_contents) - 1)
             
-            slide = self.create_content_slide(prs, title, slide_content, is_passage=True, is_last_passage_slide=is_last_slide)
+            slide = self.create_content_slide(i, prs, directions, title, slide_content, is_passage=True, is_last_passage_slide=is_last_slide)
             created_slides.append(slide)
         
         return created_slides
@@ -280,11 +313,11 @@ class WordToPowerPointConverter:
         if slide.shapes.title:
             title_frame = slide.shapes.title.text_frame
             for paragraph in title_frame.paragraphs:
-                paragraph.font.size = Pt(22)
+                # paragraph.font.size = Pt(22)
                 paragraph.font.color.rgb = RGBColor(255, 255, 255)  # White
                 paragraph.font.bold = True
                 paragraph.font.name = 'Arial'
-                paragraph.alignment = PP_ALIGN.RIGHT
+                paragraph.alignment = PP_ALIGN.JUSTIFY
         
         # Format content shapes
         for shape in slide.shapes:
@@ -374,14 +407,10 @@ class WordToPowerPointConverter:
         # Create title slide
         self.create_title_slide(prs, "Section I - English", "Reading Comprehension Test")
         
-        # Create directions slide
-        if sections['directions']:
-            self.create_content_slide(prs, "Directions", sections['directions'])
-        
         # Create slides for each passage
         print(f"📄 Processing {len(sections['passages'])} passages...")
         for passage in sections['passages']:
-            self.create_passage_slides(prs, passage)
+            self.create_passage_slides(prs, passage, sections['directions'])
         
             # Create question slides
             print(f"❓ Processing {len(passage['questions'])} questions...")
