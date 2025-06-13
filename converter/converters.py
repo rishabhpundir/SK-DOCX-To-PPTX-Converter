@@ -6,8 +6,8 @@ Place your conversion scripts in converter/conversion_scripts/ directory
 import os
 import sys
 import time
+import shutil
 import traceback
-from pathlib import Path
 from django.conf import settings
 from django.core.files.base import ContentFile
 
@@ -74,6 +74,11 @@ class ConverterManager:
             job.save()
             
             return False
+        finally:
+            # Ensure any temporary files are cleaned up
+            temp_dir = os.path.join(settings.MEDIA_ROOT, 'extraction')
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir, ignore_errors=True)
     
     def convert_passage(self, job):
         """Convert using passage converter"""
