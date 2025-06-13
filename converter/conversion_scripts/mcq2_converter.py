@@ -13,6 +13,10 @@ from pdf2image import convert_from_path
 import tempfile
 import subprocess
 from django.conf import settings
+import pytesseract
+from collections import defaultdict
+import json
+from pathlib import Path
 
 OUTPUT_DIR = os.path.join(settings.BASE_DIR, "media", "extracted_images")
 
@@ -39,11 +43,12 @@ def parse_word_document(doc_path):
             current_direction = text
             
         # Check if it's an arrangement line
-        elif "arrangement is as follows" in text.lower() or "final arrangement" in text.lower():
+        elif "arrangement" in text.lower() or \
+        "final" in text.lower() or \
+        "follows" in text.lower():
             in_arrangement = True
             pending_arrangement = text + '\n'
             
-        # Check if it's the actual arrangement (underlined text, special format, or circular diagram)
         elif in_arrangement:
             # Check for various arrangement patterns
             if (text.startswith('[') or  # Underlined arrangement
@@ -66,8 +71,8 @@ def parse_word_document(doc_path):
                 if not text.endswith(','):
                     in_arrangement = False
                     
-        # Check if it's a question number
-        elif re.match(r'^\*?\*?\d+\.', text):
+        # Check if it's a question number - improved regex to handle bold markers
+        if re.match(r'^\d{1,2}+\.', text):
             # Start new question with pending arrangement
             content_blocks.append({
                 'type': 'question',
@@ -83,106 +88,318 @@ def parse_word_document(doc_path):
             # Check if this line is an option (starts with number in parentheses)
             if re.match(r'^\(\d+\)', text) or re.match(r'^\\\(\d+\\\)', text):
                 content_blocks[-1]['options'].append(text)
-            # Otherwise, append to question text
-            elif not (text.startswith('-----') or 
-                    text == 'Person' or text == 'Game' or text == 'Color' or
-                    text == 'City' or text == 'Car' or text == 'Country' or
-                    text == 'Fruit' or text.startswith('===') or 
-                    '|' in text and len(text.split('|')) > 2):
+            # Otherwise, append to question text if it's not a table or separator
+            elif not (text.startswith('-----') or text.startswith('===') or 
+                    '|' in text and len(text.split('|')) > 2 or text in pending_arrangement):
                 content_blocks[-1]['content'] += '\n' + text
-    
     return content_blocks
 
-def extract_images_from_docx(doc_path, output_dir=OUTPUT_DIR):
-    """Extract images and diagrams from the Word document"""
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    extracted_images = []
+
+# Image extraction functions from test.py
+def convert_docx_to_pdf(docx_path, output_dir):
+    """Converts a DOCX file to PDF using LibreOffice"""
+    os.makedirs(output_dir, exist_ok=True)
+
+    try:
+        subprocess.run([
+            "soffice",
+            "--headless",
+            "--convert-to", "pdf",
+            "--outdir", output_dir,
+            docx_path
+        ], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except FileNotFoundError:
+        raise EnvironmentError("LibreOffice (`soffice`) not found. Please install it.")
+    except subprocess.CalledProcessError as e:
+        raise RuntimeError(f"LibreOffice failed to convert the file: {e}")
+
+    pdf_name = Path(docx_path).stem + ".pdf"
+    pdf_path = os.path.join(output_dir, pdf_name)
+
+    if not os.path.exists(pdf_path):
+        raise FileNotFoundError(f"Expected PDF not found at {pdf_path}")
+
+    return pdf_path
+
+
+def convert_pdf_to_images(pdf_path, image_dir):
+    """Convert PDF pages to high-resolution images"""
+    os.makedirs(image_dir, exist_ok=True)
+    images = convert_from_path(pdf_path, dpi=300)
+    page_paths = []
+
+    for i, img in enumerate(images):
+        img_path = os.path.join(image_dir, f"page_{i+1}.png")
+        img.save(img_path, "PNG")
+        page_paths.append(img_path)
+    
+    return page_paths
+
+
+def detect_question_regions_enhanced(page_path, known_questions=None):
+    """Detect question numbers and their positions using OCR with enhanced preprocessing"""
+    img = cv2.imread(page_path)
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    
+    # Enhanced preprocessing
+    denoised = cv2.bilateralFilter(gray, 9, 75, 75)
+    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
+    enhanced = clahe.apply(denoised)
+    
+    # Multiple threshold attempts
+    question_regions = []
+    
+    # Try different preprocessing methods
+    preprocessing_methods = [
+        lambda x: cv2.threshold(x, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1],
+        lambda x: cv2.adaptiveThreshold(x, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2),
+        lambda x: x  # Use enhanced image as-is
+    ]
+    
+    for preprocess in preprocessing_methods:
+        processed = preprocess(enhanced)
+        
+        try:
+            # Get OCR data with custom config
+            custom_config = r'--oem 3 --psm 6'
+            data = pytesseract.image_to_data(processed, config=custom_config, output_type=pytesseract.Output.DICT)
+            
+            # Process OCR results
+            for i in range(len(data['text'])):
+                text = str(data['text'][i]).strip()
+                
+                # Multiple patterns for flexibility
+                patterns = [
+                    r'^(\d{1,2})\.$',           # "14."
+                    r'^(\d{1,2})\.\s*$',        # "14. "
+                ]
+                
+                question_num = None
+                for pattern in patterns:
+                    match = re.match(pattern, text)
+                    if match:
+                        question_num = int(match.group(1))
+                        break
+                
+                # Also check if this might be part of a question (e.g., separated "14" and ".")
+                if not question_num and text.isdigit() and 1 <= int(text) <= 30:
+                    # Check if next text element is a period
+                    if i + 1 < len(data['text']) and data['text'][i + 1].strip() in ['.', '．']:
+                        question_num = int(text)
+                
+                if question_num and data['conf'][i] > 30:  # Confidence threshold
+                    x, y, w, h = data['left'][i], data['top'][i], data['width'][i], data['height'][i]
+                    
+                    if w > 5 and h > 5:  # Minimum size
+                        question_regions.append({
+                            'number': question_num,
+                            'x': x,
+                            'y': y,
+                            'width': w,
+                            'height': h,
+                            'confidence': data['conf'][i]
+                        })
+            
+            # If we found questions with this method, stop trying others
+            if len(question_regions) >= 5:  # Expect at least 5 questions per page
+                break
+                
+        except Exception as e:
+            continue
+    
+    # Deduplicate by keeping highest confidence for each question
+    unique_questions = {}
+    for q in question_regions:
+        num = q['number']
+        if num not in unique_questions or q['confidence'] > unique_questions[num]['confidence']:
+            unique_questions[num] = q
+    
+    question_regions = list(unique_questions.values())
+    
+    # Sort by position
+    question_regions.sort(key=lambda q: (q['y'], q['x']))
+    
+    return question_regions
+
+
+def is_valid_diagram(contour, w, h, area):
+    """Check if a contour represents a valid diagram (not a line or text)"""
+    # Filter out very small areas
+    if area < 5000:  # Increased threshold to avoid small elements
+        return False
+    
+    # Calculate aspect ratio
+    aspect_ratio = float(w) / h if h > 0 else float('inf')
+    
+    # Filter out extreme aspect ratios (lines)
+    if aspect_ratio > 10 or aspect_ratio < 0.1:
+        return False
+    
+    # Filter out very thin shapes (likely lines or underlines)
+    if w < 20 or h < 20:
+        return False
+    
+    # Calculate solidity (ratio of contour area to convex hull area)
+    hull = cv2.convexHull(contour)
+    hull_area = cv2.contourArea(hull)
+    solidity = float(area) / hull_area if hull_area > 0 else 0
+    
+    # Filter out very low solidity shapes (likely text or noise)
+    if solidity < 0.3:
+        return False
+    
+    return True
+
+
+def find_associated_question(img_y, img_x, img_h, question_regions, page_width):
+    """Find which question a diagram belongs to based on position"""
+    if not question_regions:
+        return None
+    
+    # Center position of the image
+    img_center_y = img_y + img_h // 2
+    
+    # Determine column (left or right)
+    is_right_column = img_x > page_width / 2
+    
+    # Filter questions by column
+    column_questions = []
+    for q in question_regions:
+        q_is_right = q['x'] > page_width / 2
+        if is_right_column == q_is_right:
+            column_questions.append(q)
+    
+    if not column_questions:
+        # If no questions in the same column, use all questions
+        column_questions = question_regions
+    
+    # Find the closest question that is BELOW the image
+    closest_question = None
+    min_distance = float('inf')
+    
+    for q in column_questions:
+        # Consider questions that are BELOW the image center
+        if q['y'] > img_center_y:
+            distance = q['y'] - img_center_y
+            if distance < min_distance:
+                min_distance = distance
+                closest_question = q['number']
+    
+    # If no question found below, try finding the closest question above
+    if not closest_question:
+        for q in column_questions:
+            if q['y'] <= img_center_y:
+                distance = img_center_y - q['y']
+                if distance < min_distance:
+                    min_distance = distance
+                    closest_question = q['number']
+    
+    return closest_question
+
+
+def extract_diagrams_from_pages(page_paths, output_dir, known_questions=None):
+    """Extract diagrams from pages and associate with questions"""
+    os.makedirs(output_dir, exist_ok=True)
+    results = defaultdict(list)  # Question -> list of image paths
+    
+    for page_idx, page_path in enumerate(page_paths):
+        img = cv2.imread(page_path)
+        page_height, page_width = img.shape[:2]
+        
+        # Detect question regions on this page using OCR
+        question_regions = detect_question_regions_enhanced(page_path, known_questions)
+        
+        # Convert to grayscale and apply preprocessing
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # Apply adaptive thresholding for better shape detection
+        thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                     cv2.THRESH_BINARY_INV, 11, 2)
+        
+        # Apply morphological operations to connect nearby components
+        kernel = np.ones((3, 3), np.uint8)
+        thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
+        
+        # Find contours
+        contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        for cnt in contours:
+            x, y, w, h = cv2.boundingRect(cnt)
+            area = cv2.contourArea(cnt)
+            
+            # Check if this is a valid diagram
+            if is_valid_diagram(cnt, w, h, area):
+                # Find associated question
+                question_num = find_associated_question(y, x, h, question_regions, page_width)
+                
+                if question_num:
+                    # Determine padding based on shape
+                    peri = cv2.arcLength(cnt, True)
+                    approx = cv2.approxPolyDP(cnt, 0.02 * peri, True)
+                    aspect_ratio = float(w) / h
+                    
+                    # Check if it's circular/oval (many vertices) or rectangular
+                    if len(approx) >= 6 and 0.8 < aspect_ratio < 1.2:
+                        pad = 65  # Circular/oval shape
+                    else:
+                        pad = 20    # Rectangular shape
+                    
+                    # Crop with padding
+                    x1 = max(x - pad, 0)
+                    y1 = max(y - pad, 0)
+                    x2 = min(x + w + pad, img.shape[1])
+                    y2 = min(y + h + pad, img.shape[0])
+                    
+                    cropped = img[y1:y2, x1:x2]
+                    
+                    # Generate unique filename for multiple diagrams per question
+                    existing_count = len(results[question_num])
+                    suffix = f"_{chr(97 + existing_count)}" if existing_count > 0 else ""
+                    image_filename = f"q{question_num}_diagram{suffix}.png"
+                    image_path = os.path.join(output_dir, image_filename)
+                    
+                    cv2.imwrite(image_path, cropped)
+                    results[question_num].append(image_path)
+    
+    return results
+
+
+def extract_images_from_document(doc_path):
+    """Extract images from the Word document and associate them with questions"""
+    # Create temporary directory
+    tmpdir = os.path.join(os.path.dirname(doc_path), "temp_processing")
+    os.makedirs(tmpdir, exist_ok=True)
     
     try:
-        # Convert DOCX to PDF for better image extraction
-        with tempfile.TemporaryDirectory() as tmpdir:
-            # Use LibreOffice or similar to convert
-            pdf_path = os.path.join(tmpdir, "temp.pdf")
-            subprocess.run(["soffice", "--headless", "--convert-to", "pdf", "--outdir", tmpdir, doc_path], 
-                         capture_output=True)
-            
-            if os.path.exists(pdf_path):
-                # Convert PDF pages to images
-                images = convert_from_path(pdf_path, dpi=300)
-                
-                for i, img in enumerate(images):
-                    # Convert PIL Image to numpy array for OpenCV
-                    img_np = np.array(img)
-                    
-                    # Convert RGB to BGR for OpenCV
-                    img_cv = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
-                    
-                    # Extract diagrams/charts
-                    gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
-                    blur = cv2.GaussianBlur(gray, (5, 5), 0)
-                    _, thresh = cv2.threshold(blur, 200, 255, cv2.THRESH_BINARY_INV)
-                    
-                    contours, _ = cv2.findContours(thresh, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-                    
-                    for j, cnt in enumerate(contours):
-                        x, y, w, h = cv2.boundingRect(cnt)
-                        area = w * h
-                        
-                        # Filter for significant shapes (diagrams)
-                        if area > 10000 and w > 100 and h > 100:
-                            # Determine padding based on shape
-                            peri = cv2.arcLength(cnt, True)
-                            approx = cv2.approxPolyDP(cnt, 0.04 * peri, True)
-                            aspect_ratio = float(w) / h
-                            
-                            if len(approx) >= 6 and 0.8 < aspect_ratio < 1.2:
-                                # Likely circular diagram
-                                pad = 50
-                            else:
-                                # Rectangular or other shape
-                                pad = 20
-                            
-                            # Crop with padding
-                            x1 = max(x - pad, 0)
-                            y1 = max(y - pad, 0)
-                            x2 = min(x + w + pad, img_cv.shape[1])
-                            y2 = min(y + h + pad, img_cv.shape[0])
-                            
-                            cropped = img_cv[y1:y2, x1:x2]
-                            
-                            # Save the extracted image
-                            img_path = os.path.join(output_dir, f"diagram_{i+1}_{j+1}.png")
-                            cv2.imwrite(img_path, cropped)
-                            
-                            # Store metadata about the image
-                            extracted_images.append({
-                                'path': img_path,
-                                'page': i + 1,
-                                'position': y,  # Vertical position for mapping to questions
-                                'type': 'circular' if len(approx) >= 6 and 0.8 < aspect_ratio < 1.2 else 'rectangular'
-                            })
-    
+        # Convert DOCX to PDF
+        pdf_path = convert_docx_to_pdf(doc_path, tmpdir)
+        
+        # Convert PDF to images
+        pages_dir = os.path.join(tmpdir, "pages")
+        page_images = convert_pdf_to_images(pdf_path, pages_dir)
+        
+        # Extract diagrams and associate with questions
+        diagrams_dir = os.path.join(os.path.dirname(doc_path), "extracted_diagrams")
+        question_diagram_map = extract_diagrams_from_pages(page_images, diagrams_dir)
+        
+        # Clean up temporary files
+        import shutil
+        if os.path.exists(tmpdir):
+            shutil.rmtree(tmpdir)
+        
+        return question_diagram_map
+        
     except Exception as e:
-        print(f"Warning: Could not extract images using PDF conversion: {e}")
-        # Fallback: try to extract embedded images directly from DOCX
-        doc = Document(doc_path)
-        for i, rel in enumerate(doc.part.rels.values()):
-            if "image" in rel.reltype:
-                img_data = rel.target_part.blob
-                img_path = os.path.join(output_dir, f"embedded_{i+1}.png")
-                with open(img_path, 'wb') as f:
-                    f.write(img_data)
-                extracted_images.append({
-                    'path': img_path,
-                    'page': 0,
-                    'position': 0,
-                    'type': 'embedded'
-                })
-    
-    return extracted_images
+        print(f"Error extracting images: {e}")
+        # Clean up on error
+        import shutil
+        if os.path.exists(tmpdir):
+            shutil.rmtree(tmpdir)
+        return {}
 
-def create_arrangement_slide(prs, arrangement_text, direction_text=None, num=0):
-    """Create a slide with just the arrangement text"""
+
+def create_arrangement_slide(prs, arrangement_text, direction_text=None, num=0, diagram_path=None):
+    """Create a slide with the arrangement text and optional diagram"""
     slide_layout = prs.slide_layouts[5]  # Blank slide
     slide = prs.slides.add_slide(slide_layout)
     
@@ -196,8 +413,29 @@ def create_arrangement_slide(prs, arrangement_text, direction_text=None, num=0):
     slide_width = prs.slide_width
     slide_height = prs.slide_height
     
-    text_left = slide_width * 0.4
-    text_width = slide_width * 0.58
+    # If there's a diagram, adjust layout
+    if diagram_path and os.path.exists(diagram_path):
+        # Add the diagram in the left 40% area
+        try:
+            left = slide_width * 0.05
+            top = slide_height * 0.25
+            width = slide_width * 0.3
+            
+            slide.shapes.add_picture(diagram_path, left, top, width=width)
+            
+            # Adjust text position to right side
+            text_left = slide_width * 0.4
+            text_width = slide_width * 0.58
+        except Exception as e:
+            print(f"Warning: Could not add diagram: {e}")
+            # Fall back to centered text
+            text_left = slide_width * 0.4
+            text_width = slide_width * 0.58
+    else:
+        # Center text if no diagram
+        text_left = slide_width * 0.4
+        text_width = slide_width * 0.58
+    
     text_top = slide_height * 0.35  # Center vertically
     text_height = slide_height * 0.3
     
@@ -213,6 +451,7 @@ def create_arrangement_slide(prs, arrangement_text, direction_text=None, num=0):
     text_frame.clear()
     text_frame.word_wrap = True
 
+    # Remove title placeholder if it exists
     for shape in slide.shapes:
         if shape == slide.shapes.title:
             sp = shape
@@ -240,6 +479,7 @@ def create_arrangement_slide(prs, arrangement_text, direction_text=None, num=0):
     p.alignment = PP_ALIGN.LEFT
     
     return slide
+
 
 def create_question_slide(prs, question_data, diagram_path=None):
     """Create a slide with the MCQ question"""
@@ -294,6 +534,7 @@ def create_question_slide(prs, question_data, diagram_path=None):
     p.alignment = PP_ALIGN.LEFT
     p.space_after = Pt(8)
     
+    # Remove title placeholder if it exists
     for shape in slide.shapes:
         if shape == slide.shapes.title:
             sp = shape
@@ -321,7 +562,7 @@ def convert_word_to_ppt(word_path, ppt_path):
     
     # Extract images from document
     print("Extracting diagrams and images...")
-    extracted_images = extract_images_from_docx(word_path)
+    extracted_images = extract_images_from_document(word_path)
     
     # Create PowerPoint presentation
     print("Creating PowerPoint presentation...")
@@ -337,35 +578,40 @@ def convert_word_to_ppt(word_path, ppt_path):
     # Create slides for each question
     slide_count = 0
     for i, question in enumerate(questions):
+        # Extract question number from the content
+        question_num_match = re.search(r'^(\*\*)?(\d+)\.', question['content'])
+        question_num = int(question_num_match.group(2)) if question_num_match else None
+        
         # Update direction if it changes
         if question['direction'] and question['direction'] != current_direction:
             current_direction = question['direction']
         
+        # Check if there's a diagram for this question's arrangement
+        arrangement_diagram = None
+        if question_num and question_num in extracted_images:
+            # Use the first diagram for the arrangement slide
+            if extracted_images[question_num]:
+                arrangement_diagram = extracted_images[question_num][0]
+        
         # If there's an arrangement, create a separate slide for it
         if question.get('arrangement'):
             print(f"Creating arrangement slide {slide_count + 1}...")
-            create_arrangement_slide(prs, question['arrangement'], current_direction, i)
+            create_arrangement_slide(prs, question['arrangement'], current_direction, i, arrangement_diagram)
             slide_count += 1
         
         # Create the question slide
         print(f"Creating question slide {slide_count + 1}...")
         
-        # Try to find a relevant diagram for this question
-        diagram_path = None
-        # Simple heuristic: if question mentions "circular" or specific question numbers
-        # that typically have diagrams (like questions 8-14 for circular arrangements)
-        question_num_match = re.search(r'^(\d+)\.', question['content'])
-        if question_num_match:
-            q_num = int(question_num_match.group(1))
-            # Questions 8-14 typically have circular diagrams
-            if 8 <= q_num <= 14:
-                # Find circular diagram if available
-                for img in extracted_images:
-                    if img['type'] == 'circular':
-                        diagram_path = img['path']
-                        break
+        # Check if there's a diagram for this question
+        question_diagram = None
+        if question_num and question_num in extracted_images:
+            # Use the second diagram for the question slide if available, otherwise use the first
+            if len(extracted_images[question_num]) > 1:
+                question_diagram = extracted_images[question_num][1]
+            elif extracted_images[question_num]:
+                question_diagram = extracted_images[question_num][0]
         
-        create_question_slide(prs, question, diagram_path)
+        create_question_slide(prs, question, question_diagram)
         slide_count += 1
     
     # Save presentation
@@ -374,9 +620,11 @@ def convert_word_to_ppt(word_path, ppt_path):
     print(f"Conversion complete! Created {slide_count} slides.")
     
     # Cleanup extracted images if needed
-    if extracted_images and os.path.exists(OUTPUT_DIR):
+    extracted_dir = os.path.join(os.path.dirname(word_path), "extracted_diagrams")
+    if os.path.exists(extracted_dir):
         import shutil
-        shutil.rmtree(OUTPUT_DIR, ignore_errors=True)
+        shutil.rmtree(extracted_dir, ignore_errors=True)
+
 
 # Main execution
 if __name__ == "__main__":

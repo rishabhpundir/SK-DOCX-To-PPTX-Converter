@@ -6,6 +6,7 @@ Place your conversion scripts in converter/conversion_scripts/ directory
 import os
 import sys
 import time
+import traceback
 from pathlib import Path
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -66,6 +67,7 @@ class ConverterManager:
             
         except Exception as e:
             # Handle errors
+            print(f"Conversion error: \n{traceback.format_exc()}")
             job.status = 'failed'
             job.error_message = str(e)
             job.processing_time = time.time() - start_time
