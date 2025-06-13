@@ -213,6 +213,37 @@ class WordToPowerPointConverter:
         p.font.size = Pt(22)
         p.font.color.rgb = RGBColor(255, 255, 255)  # White text
         p.font.name = 'Arial'
+        
+    def split_mcq_list(self, mcq_list):
+        """
+        Split MCQ strings that use either tabs or newlines as separators.
+        Supports numbers, letters, and Roman numerals with various formats.
+        """
+        result = []
+        
+        for item in mcq_list:
+            # Check if item contains tabs or newlines (needs splitting)
+            if '\t' in item or '\n' in item:
+                # Replace tabs after various numbering patterns with space
+                # Patterns supported:
+                # - Numbers: 1.\t, 1)\t, (1)\t
+                # - Letters: A)\t, (A)\t
+                # - Roman numerals: I.\t, II.\t, IV.\t, (I)\t, I)\t, etc.
+                roman_pattern = 'M{0,3}(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})'
+                pattern = rf'(\d+\.|\d+\)|\(\d+\)|[A-Z]\)|\([A-Z]\)|{roman_pattern}\.|\({roman_pattern}\)|{roman_pattern}\))\t+'
+                item = re.sub(pattern, r'\1 ', item)
+                
+                # Split by both newlines and remaining tabs
+                parts = re.split(r'[\n\t]+', item)
+                
+                # Clean and filter parts
+                parts = [part.strip() for part in parts if part.strip()]
+                result.extend(parts)
+            else:
+                # Item doesn't need splitting
+                result.append(item.strip())
+        
+        return result
 
     def create_questions_slide(self, prs, questions_list):
         """Create a formatted slide with questions"""
@@ -249,6 +280,7 @@ class WordToPowerPointConverter:
         text_frame.word_wrap = True
         text_frame.clear()
         
+        questions_list = self.split_mcq_list(questions_list)
         for i, question in enumerate(questions_list):
             if i > 0:
                 p = text_frame.add_paragraph()
