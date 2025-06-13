@@ -1,10 +1,55 @@
+import re
 import os
 from docx import Document
 from pptx import Presentation
+from django.conf import settings
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
-import re
+
+def add_logo(slide):
+    # Add logo to top-left corner
+    logo_path = logo_path = os.path.join(settings.BASE_DIR, "docs", "mcq_logo.png")
+    logo_left = Inches(0.2)
+    logo_top = Inches(0.2)
+    logo_width = Inches(1.0)  # Adjust as needed
+    slide.shapes.add_picture(logo_path, logo_left, logo_top, width=logo_width)
+    
+
+def add_yellow_border(slide):
+    """Add a yellow border effect to the slide - only top and bottom, 3/4 width"""
+    slide_width = Inches(13.33)
+    slide_height = Inches(7.5)
+    border_width = Inches(0.15)
+    
+    # Calculate 3/4 of the slide width
+    border_length = slide_width * 0.75
+    
+    start_x = slide_width - border_length
+    # Top border (3/4 width from left)
+    top_border = slide.shapes.add_shape(
+        1,  # Rectangle shape
+        start_x,  # Start from right edge
+        0,  # Top of slide
+        border_length,  # 3/4 of slide width
+        border_width    # Border thickness
+    )
+    top_border.fill.solid()
+    top_border.fill.fore_color.rgb = RGBColor(248, 212, 37)
+    top_border.line.fill.background()
+    
+    # Bottom border (3/4 width from left)
+    bottom_border = slide.shapes.add_shape(
+        1,  # Rectangle shape
+        0,  # Start from left edge
+        slide_height - border_width,  # Bottom position
+        border_length,  # 3/4 of slide width
+        border_width    # Border thickness
+    )
+    bottom_border.fill.solid()
+    bottom_border.fill.fore_color.rgb = RGBColor(248, 212, 37)
+    bottom_border.line.fill.background()
+    
 
 def parse_word_document(doc_path):
     """Parse the Word document and extract questions with their directions"""
@@ -47,7 +92,7 @@ def parse_word_document(doc_path):
             # Get the direction details from next paragraph
             
         # Check if it's a question number
-        elif re.match(r'^\d+\.', text):
+        elif re.match(r'^\d{1,2}+\.', text):
             # Save previous question if exists
             if current_question:
                 content_blocks.append({
@@ -72,10 +117,29 @@ def parse_word_document(doc_path):
         })
     return content_blocks
 
+
+def split_mcq_list(mcq_list):
+    """Split MCQ strings while keeping option numbers with their values."""
+    result = []
+    for item in mcq_list:
+        if '\t' in item:
+            # Replace tabs between option parts with space, but keep tabs between different options
+            # This regex finds patterns like (1)\t and replaces the tab with space
+            item = re.sub(r'(\d+\.|\d+\)|\(\d+\))\t+', r'\1 ', item)
+            # Now split by remaining tabs (which separate different options)
+            parts = [part.strip() for part in re.split(r'\t+', item) if part.strip()]
+            result.extend(parts)
+        else:
+            result.append(item.strip())
+    return result
+
+
 def create_slide(prs, question_data):
     """Create a slide with the MCQ question"""
     slide_layout = prs.slide_layouts[5]  # Blank slide
     slide = prs.slides.add_slide(slide_layout)
+    
+    add_logo(slide)
 
     for shape in slide.shapes:
         if shape == slide.shapes.title:
@@ -126,7 +190,8 @@ def create_slide(prs, question_data):
     
     # Process question content
     if question_data['type'] == 'question':
-        lines = question_data['content'].split('\n')
+        lines_list = question_data['content'].split('\n')
+        lines = split_mcq_list(lines_list)
     else:
         lines = [question_data['content']]
     
@@ -144,7 +209,7 @@ def create_slide(prs, question_data):
         p.font.size = Pt(25)
         
         # Check if this is a question line (starts with number) or contains "?" 
-        if re.match(r'^\d+\.', line) or '?' in line:
+        if re.match(r'^\d{1,2}+\.', line) or '?' in line or question_data['type'] == 'info':
             p.font.color.rgb = RGBColor(255, 255, 255)  # White for questions
         else:
             # This is likely an option line
@@ -154,6 +219,8 @@ def create_slide(prs, question_data):
         
         # Add some spacing between lines
         p.space_after = Pt(6)
+        
+    add_yellow_border(slide)
     return slide
 
 def convert_word_to_ppt(word_path, ppt_path):
@@ -167,8 +234,8 @@ def convert_word_to_ppt(word_path, ppt_path):
     prs = Presentation()
     
     # Set slide size to 16:9
-    prs.slide_width = Inches(16)
-    prs.slide_height = Inches(9)
+    prs.slide_width = Inches(13.33)
+    prs.slide_height = Inches(7.5)
     
     # Create slides for each question
     for i, question in enumerate(questions):

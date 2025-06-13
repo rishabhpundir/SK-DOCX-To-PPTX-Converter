@@ -41,8 +41,50 @@ class MCQConverter:
         # Layout settings
         self.left_margin = Inches(5.33)  # 40% of slide width
         self.content_width = Inches(7.5)  # 60% of slide width
-        self.top_margin = Inches(0.5)
+        self.top_margin = Inches(0.25)
         self.content_height = Inches(6.5)
+        
+    def add_logo(self, slide):
+        # Add logo to top-left corner
+        logo_path = logo_path = os.path.join(settings.BASE_DIR, "docs", "mcq_logo.png")
+        logo_left = Inches(0.2)
+        logo_top = Inches(0.2)
+        logo_width = Inches(1.0)  # Adjust as needed
+        slide.shapes.add_picture(logo_path, logo_left, logo_top, width=logo_width)
+        
+    def add_yellow_border(self, slide):
+        """Add a yellow border effect to the slide - only top and bottom, 3/4 width"""
+        slide_width = Inches(13.33)
+        slide_height = Inches(7.5)
+        border_width = Inches(0.15)
+        
+        # Calculate 3/4 of the slide width
+        border_length = slide_width * 0.75
+        
+        start_x = slide_width - border_length
+        # Top border (3/4 width from left)
+        top_border = slide.shapes.add_shape(
+            1,  # Rectangle shape
+            start_x,  # Start from right edge
+            0,  # Top of slide
+            border_length,  # 3/4 of slide width
+            border_width    # Border thickness
+        )
+        top_border.fill.solid()
+        top_border.fill.fore_color.rgb = RGBColor(248, 212, 37)
+        top_border.line.fill.background()
+        
+        # Bottom border (3/4 width from left)
+        bottom_border = slide.shapes.add_shape(
+            1,  # Rectangle shape
+            0,  # Start from left edge
+            slide_height - border_width,  # Bottom position
+            border_length,  # 3/4 of slide width
+            border_width    # Border thickness
+        )
+        bottom_border.fill.solid()
+        bottom_border.fill.fore_color.rgb = RGBColor(248, 212, 37)
+        bottom_border.line.fill.background()
     
     def extract_text_with_positions(self, docx_path):
         """Extract text and try to identify question numbers"""
@@ -434,7 +476,7 @@ class MCQConverter:
         """Add the directive text at the top of the slide"""
         directive_box = slide.shapes.add_textbox(
             self.left_margin,
-            Inches(0.1),
+            Inches(0.2),
             self.content_width,
             Inches(0.8)
         )
@@ -453,6 +495,8 @@ class MCQConverter:
         # Create new slide
         slide_layout = prs.slide_layouts[6]  # Blank layout
         slide = prs.slides.add_slide(slide_layout)
+        
+        self.add_logo(slide)
         
         # Set background
         self.set_slide_background(slide)
@@ -535,7 +579,7 @@ class MCQConverter:
                     # Calculate vertical position for image
                     # Place it in the bottom 1/3 of the text box
                     text_box_bottom = top_margin + available_height
-                    image_top = text_box_bottom - Inches(2.25) - Inches(0.1)  # Small padding from bottom
+                    image_top = text_box_bottom - Inches(2.50)  # Small padding from bottom
                     
                     # Center the image horizontally if it's smaller than content width
                     if image_width < self.content_width:
@@ -554,6 +598,8 @@ class MCQConverter:
                     
                 except Exception as e:
                     print(f"Error adding image for question {mcq['number']}: {e}")
+                    
+        self.add_yellow_border(slide)
                     
     
     def convert_document(self, input_docx, output_pptx):

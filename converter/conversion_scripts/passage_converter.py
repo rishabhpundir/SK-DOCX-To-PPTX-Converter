@@ -7,11 +7,12 @@ Converts MS Word documents containing passages and questions to formatted PowerP
 import re
 import os
 import argparse
-from pptx import Presentation
-from pptx.util import Inches, Pt
-from pptx.enum.text import PP_ALIGN, MSO_ANCHOR, MSO_AUTO_SIZE
-from pptx.dml.color import RGBColor
 from docx import Document
+from pptx import Presentation
+from django.conf import settings
+from pptx.util import Inches, Pt
+from pptx.dml.color import RGBColor
+from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 
 
 class WordToPowerPointConverter:
@@ -19,6 +20,14 @@ class WordToPowerPointConverter:
     
     def __init__(self):
         self.chars_per_slide = 800  # Adjust based on your content needs
+        
+    def add_logo(self, slide):
+        # Add logo to top-left corner
+        logo_path = os.path.join(settings.BASE_DIR, "docs", "passage_logo.png")
+        logo_left = Inches(-0.4)
+        logo_top = Inches(-0.4)
+        logo_width = Inches(2.5)
+        slide.shapes.add_picture(logo_path, logo_left, logo_top, width=logo_width)
         
     def read_docx_file(self, file_path):
         """Read content from Word document"""
@@ -84,6 +93,8 @@ class WordToPowerPointConverter:
         """Create a formatted content slide"""
         slide_layout = prs.slide_layouts[1]
         slide = prs.slides.add_slide(slide_layout)
+        
+        self.add_logo(slide)
         
         if title.strip() != "":
             # Use and modify the default title shape
@@ -207,6 +218,8 @@ class WordToPowerPointConverter:
         """Create a formatted slide with questions"""
         slide_layout = prs.slide_layouts[1]
         slide = prs.slides.add_slide(slide_layout)
+        
+        self.add_logo(slide)
         
         # Remove title shape
         for shape in slide.shapes:
@@ -345,34 +358,38 @@ class WordToPowerPointConverter:
         self.add_red_border(slide)
 
     def add_red_border(self, slide):
-        """Add a red border effect to the slide"""
+        """Add a red border effect to the slide - only top and bottom, 3/4 width"""
         slide_width = Inches(13.33)
         slide_height = Inches(7.5)
         border_width = Inches(0.1)
         
-        # Top border
-        top_border = slide.shapes.add_shape(1, 0, 0, slide_width, border_width)
+        # Calculate 3/4 of the slide width
+        border_length = slide_width * 0.75
+        
+        start_x = slide_width - border_length
+        # Top border (3/4 width from left)
+        top_border = slide.shapes.add_shape(
+            1,  # Rectangle shape
+            start_x,  # Start from right edge
+            0,  # Top of slide
+            border_length,  # 3/4 of slide width
+            border_width    # Border thickness
+        )
         top_border.fill.solid()
         top_border.fill.fore_color.rgb = RGBColor(255, 0, 0)
         top_border.line.fill.background()
         
-        # Bottom border
-        bottom_border = slide.shapes.add_shape(1, 0, slide_height - border_width, slide_width, border_width)
+        # Bottom border (3/4 width from left)
+        bottom_border = slide.shapes.add_shape(
+            1,  # Rectangle shape
+            0,  # Start from left edge
+            slide_height - border_width,  # Bottom position
+            border_length,  # 3/4 of slide width
+            border_width    # Border thickness
+        )
         bottom_border.fill.solid()
         bottom_border.fill.fore_color.rgb = RGBColor(255, 0, 0)
         bottom_border.line.fill.background()
-        
-        # Left border
-        left_border = slide.shapes.add_shape(1, 0, 0, border_width, slide_height)
-        left_border.fill.solid()
-        left_border.fill.fore_color.rgb = RGBColor(255, 0, 0)
-        left_border.line.fill.background()
-        
-        # Right border
-        right_border = slide.shapes.add_shape(1, slide_width - border_width, 0, border_width, slide_height)
-        right_border.fill.solid()
-        right_border.fill.fore_color.rgb = RGBColor(255, 0, 0)
-        right_border.line.fill.background()
 
     def convert(self, input_docx_path, output_pptx_path=None):
         """Main conversion method"""

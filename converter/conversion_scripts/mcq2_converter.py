@@ -1,24 +1,29 @@
 import os
+import re
+import cv2
+import subprocess
+import numpy as np
+import pytesseract
+from pathlib import Path
 from docx import Document
 from pptx import Presentation
 from pptx.util import Inches, Pt
+from django.conf import settings
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
-import re
-from PIL import Image
-import io
-import cv2
-import numpy as np
 from pdf2image import convert_from_path
-import tempfile
-import subprocess
-from django.conf import settings
-import pytesseract
 from collections import defaultdict
-import json
-from pathlib import Path
 
 OUTPUT_DIR = os.path.join(settings.BASE_DIR, "media", "extracted_images")
+
+def add_logo(slide):
+    # Add logo to top-left corner
+    logo_path = logo_path = os.path.join(settings.BASE_DIR, "docs", "mcq_logo.png")
+    logo_left = Inches(0.2)
+    logo_top = Inches(0.2)
+    logo_width = Inches(1.0)  # Adjust as needed
+    slide.shapes.add_picture(logo_path, logo_left, logo_top, width=logo_width)
+
 
 def parse_word_document(doc_path):
     """Parse the Word document and extract questions with their arrangements and directions"""
@@ -403,6 +408,8 @@ def create_arrangement_slide(prs, arrangement_text, direction_text=None, num=0, 
     slide_layout = prs.slide_layouts[5]  # Blank slide
     slide = prs.slides.add_slide(slide_layout)
     
+    add_logo(slide)
+    
     # Set black background
     background = slide.background
     fill = background.fill
@@ -417,8 +424,8 @@ def create_arrangement_slide(prs, arrangement_text, direction_text=None, num=0, 
     if diagram_path and os.path.exists(diagram_path):
         # Add the diagram in the left 40% area
         try:
-            left = slide_width * 0.05
-            top = slide_height * 0.25
+            left = slide_width * 0.42
+            top = slide_height * 0.2
             width = slide_width * 0.3
             
             slide.shapes.add_picture(diagram_path, left, top, width=width)
@@ -436,7 +443,7 @@ def create_arrangement_slide(prs, arrangement_text, direction_text=None, num=0, 
         text_left = slide_width * 0.4
         text_width = slide_width * 0.58
     
-    text_top = slide_height * 0.35  # Center vertically
+    text_top = slide_height * 0.050 # Center vertically
     text_height = slide_height * 0.3
     
     # Add text box
@@ -473,18 +480,21 @@ def create_arrangement_slide(prs, arrangement_text, direction_text=None, num=0, 
     p = text_frame.add_paragraph()
     p.text = arrangement_text.strip()
     p.font.name = 'Arial'
-    p.font.size = Pt(25)
+    p.font.size = Pt(24)
     p.font.color.rgb = RGBColor(255, 255, 255)
     p.font.bold = True
     p.alignment = PP_ALIGN.LEFT
     
+    add_yellow_border(slide)
     return slide
 
 
-def create_question_slide(prs, question_data, diagram_path=None):
+def create_question_slide(prs, question_data):
     """Create a slide with the MCQ question"""
     slide_layout = prs.slide_layouts[5]  # Blank slide
     slide = prs.slides.add_slide(slide_layout)
+    
+    add_logo(slide)
     
     # Set black background
     background = slide.background
@@ -498,20 +508,8 @@ def create_question_slide(prs, question_data, diagram_path=None):
     
     text_left = slide_width * 0.4
     text_width = slide_width * 0.58
-    text_top = Inches(1)
+    text_top = Inches(0.25)
     text_height = slide_height - Inches(1.5)
-    
-    # If there's a diagram, adjust layout
-    if diagram_path and os.path.exists(diagram_path):
-        # Add the diagram in the left 40% area
-        try:
-            left = slide_width * 0.05
-            top = slide_height * 0.25
-            width = slide_width * 0.3
-            
-            slide.shapes.add_picture(diagram_path, left, top, width=width)
-        except Exception as e:
-            print(f"Warning: Could not add diagram: {e}")
     
     # Add text box
     textbox = slide.shapes.add_textbox(
@@ -529,7 +527,7 @@ def create_question_slide(prs, question_data, diagram_path=None):
     p = text_frame.add_paragraph()
     p.text = question_data['content']
     p.font.name = 'Arial'
-    p.font.size = Pt(25)
+    p.font.size = Pt(24)
     p.font.color.rgb = RGBColor(255, 255, 255)
     p.alignment = PP_ALIGN.LEFT
     p.space_after = Pt(8)
@@ -551,7 +549,43 @@ def create_question_slide(prs, question_data, diagram_path=None):
         p.alignment = PP_ALIGN.LEFT
         p.space_after = Pt(4)
 
+    add_yellow_border(slide)
     return slide
+
+
+def add_yellow_border(slide):
+    """Add a yellow border effect to the slide - only top and bottom, 3/4 width"""
+    slide_width = Inches(13.33)
+    slide_height = Inches(7.5)
+    border_width = Inches(0.15)
+    
+    # Calculate 3/4 of the slide width
+    border_length = slide_width * 0.75
+    
+    start_x = slide_width - border_length
+    # Top border (3/4 width from left)
+    top_border = slide.shapes.add_shape(
+        1,  # Rectangle shape
+        start_x,  # Start from right edge
+        0,  # Top of slide
+        border_length,  # 3/4 of slide width
+        border_width    # Border thickness
+    )
+    top_border.fill.solid()
+    top_border.fill.fore_color.rgb = RGBColor(248, 212, 37)
+    top_border.line.fill.background()
+    
+    # Bottom border (3/4 width from left)
+    bottom_border = slide.shapes.add_shape(
+        1,  # Rectangle shape
+        0,  # Start from left edge
+        slide_height - border_width,  # Bottom position
+        border_length,  # 3/4 of slide width
+        border_width    # Border thickness
+    )
+    bottom_border.fill.solid()
+    bottom_border.fill.fore_color.rgb = RGBColor(248, 212, 37)
+    bottom_border.line.fill.background()
 
 
 def convert_word_to_ppt(word_path, ppt_path):
@@ -569,8 +603,8 @@ def convert_word_to_ppt(word_path, ppt_path):
     prs = Presentation()
     
     # Set slide size to 16:9
-    prs.slide_width = Inches(16)
-    prs.slide_height = Inches(9)
+    prs.slide_width = Inches(13.33)
+    prs.slide_height = Inches(7.5)
     
     # Track the current direction for all slides
     current_direction = None
@@ -601,17 +635,7 @@ def convert_word_to_ppt(word_path, ppt_path):
         
         # Create the question slide
         print(f"Creating question slide {slide_count + 1}...")
-        
-        # Check if there's a diagram for this question
-        question_diagram = None
-        if question_num and question_num in extracted_images:
-            # Use the second diagram for the question slide if available, otherwise use the first
-            if len(extracted_images[question_num]) > 1:
-                question_diagram = extracted_images[question_num][1]
-            elif extracted_images[question_num]:
-                question_diagram = extracted_images[question_num][0]
-        
-        create_question_slide(prs, question, question_diagram)
+        create_question_slide(prs, question)
         slide_count += 1
     
     # Save presentation
