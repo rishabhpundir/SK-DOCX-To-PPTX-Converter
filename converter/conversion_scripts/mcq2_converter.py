@@ -529,7 +529,7 @@ def create_question_slide(prs, question_data):
     p.font.name = 'Arial'
     p.font.size = Pt(24)
     p.font.color.rgb = RGBColor(255, 255, 255)
-    p.alignment = PP_ALIGN.LEFT
+    p.alignment = PP_ALIGN.JUSTIFY
     p.space_after = Pt(8)
     
     # Remove title placeholder if it exists
@@ -572,7 +572,7 @@ def add_yellow_border(slide):
         border_width    # Border thickness
     )
     top_border.fill.solid()
-    top_border.fill.fore_color.rgb = RGBColor(248, 212, 37)
+    top_border.fill.fore_color.rgb = RGBColor(255, 255, 0)
     top_border.line.fill.background()
     
     # Bottom border (3/4 width from left)
@@ -584,7 +584,7 @@ def add_yellow_border(slide):
         border_width    # Border thickness
     )
     bottom_border.fill.solid()
-    bottom_border.fill.fore_color.rgb = RGBColor(248, 212, 37)
+    bottom_border.fill.fore_color.rgb = RGBColor(255, 255, 0)
     bottom_border.line.fill.background()
 
 

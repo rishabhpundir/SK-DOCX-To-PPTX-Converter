@@ -35,7 +35,7 @@ def add_yellow_border(slide):
         border_width    # Border thickness
     )
     top_border.fill.solid()
-    top_border.fill.fore_color.rgb = RGBColor(248, 212, 37)
+    top_border.fill.fore_color.rgb = RGBColor(255, 255, 0)
     top_border.line.fill.background()
     
     # Bottom border (3/4 width from left)
@@ -47,7 +47,7 @@ def add_yellow_border(slide):
         border_width    # Border thickness
     )
     bottom_border.fill.solid()
-    bottom_border.fill.fore_color.rgb = RGBColor(248, 212, 37)
+    bottom_border.fill.fore_color.rgb = RGBColor(255, 255, 0)
     bottom_border.line.fill.background()
     
 
@@ -211,11 +211,12 @@ def create_slide(prs, question_data):
         # Check if this is a question line (starts with number) or contains "?" 
         if re.match(r'^\d{1,2}+\.', line) or '?' in line or question_data['type'] == 'info':
             p.font.color.rgb = RGBColor(255, 255, 255)  # White for questions
+            p.alignment = PP_ALIGN.JUSTIFY
         else:
             # This is likely an option line
             p.font.color.rgb = RGBColor(255, 255, 0)  # Yellow for options
+            p.alignment = PP_ALIGN.LEFT
         
-        p.alignment = PP_ALIGN.LEFT
         
         # Add some spacing between lines
         p.space_after = Pt(6)

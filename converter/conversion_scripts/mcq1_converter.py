@@ -32,7 +32,7 @@ class MCQConverter:
         # Color definitions
         self.bg_color = RGBColor(0, 0, 0)  # Black background
         self.question_color = RGBColor(255, 255, 255)  # White for questions
-        self.option_color = RGBColor(255, 215, 0)  # Gold/Yellow for options
+        self.option_color = RGBColor(255, 255, 0)  # Gold/Yellow for options
         
         # Slide dimensions (16:9)
         self.slide_width = Inches(13.33)
@@ -71,7 +71,7 @@ class MCQConverter:
             border_width    # Border thickness
         )
         top_border.fill.solid()
-        top_border.fill.fore_color.rgb = RGBColor(248, 212, 37)
+        top_border.fill.fore_color.rgb = RGBColor(255, 255, 0)
         top_border.line.fill.background()
         
         # Bottom border (3/4 width from left)
@@ -83,7 +83,7 @@ class MCQConverter:
             border_width    # Border thickness
         )
         bottom_border.fill.solid()
-        bottom_border.fill.fore_color.rgb = RGBColor(248, 212, 37)
+        bottom_border.fill.fore_color.rgb = RGBColor(255, 255, 0)
         bottom_border.line.fill.background()
     
     def extract_text_with_positions(self, docx_path):
@@ -95,7 +95,7 @@ class MCQConverter:
         for para in doc.paragraphs:
             text = para.text.strip()
             # Look for question numbers at the start of paragraphs
-            match = re.match(r'^(\d+)\.\s*', text)
+            match = re.match(r'^(\d{1,2}+)\.\s*', text)
             if match:
                 question_num = int(match.group(1))
                 questions.append({
@@ -324,36 +324,6 @@ class MCQConverter:
             print(f"Error extracting images: {e}")
         return images
     
-    def parse_mcq_text(self, text):
-        """Parse MCQ text to extract question and options"""
-        text = re.sub(r'\s+', ' ', text.strip())
-        
-        question_match = re.match(r'^(\d+)\.\s*(.*)', text)
-        if not question_match:
-            return None
-            
-        question_num = question_match.group(1)
-        remaining_text = question_match.group(2)
-        
-        option_start = re.search(r'\(\d+\)', remaining_text)
-        if not option_start:
-            return None
-            
-        question_text = remaining_text[:option_start.start()].strip()
-        options_text = remaining_text[option_start.start():].strip()
-        
-        options = []
-        option_matches = re.findall(r'\((\d+)\)\s*([^(]+?)(?=\(\d+\)|$)', options_text)
-        
-        for opt_num, opt_text in option_matches:
-            options.append(f"({opt_num}) {opt_text.strip()}")
-            
-        return {
-            'number': int(question_num),
-            'question': question_text,
-            'options': options
-        }
-    
     def extract_mcqs_from_document(self, doc_path):
         """Extract all MCQs from the Word document"""
         doc = Document(doc_path)
@@ -391,48 +361,7 @@ class MCQConverter:
             mcqs = self.alternative_parsing(current_text)
             
         return mcqs
-    
-    def parse_question_content(self, question_num, content):
-        """Parse individual question content"""
-        lines = content.strip().split('\n')
-        question_text = ""
-        options = []
-        
-        # Find where options start
-        option_start_idx = -1
-        for i, line in enumerate(lines):
-            if re.match(r'\\?\(\d+\)', line.strip()):
-                option_start_idx = i
-                break
-        
-        # Extract question text
-        if option_start_idx > 0:
-            question_text = ' '.join(lines[:option_start_idx]).strip()
-        elif option_start_idx == 0:
-            question_text = "Question text missing"
-        else:
-            question_text = ' '.join(lines).strip()
-        
-        # Extract options
-        if option_start_idx >= 0:
-            for line in lines[option_start_idx:]:
-                line = line.strip()
-                if re.match(r'\\?\(\d+\)', line):
-                    option_text = re.sub(r'\\?\(\d+\)\s*', '', line).strip()
-                    option_match = re.match(r'\\?\((\d+)\)', line)
-                    if option_match:
-                        option_num = option_match.group(1)
-                        options.append(f"({option_num}) {option_text}")
-        
-        if question_text and options:
-            return {
-                'number': int(question_num),
-                'question': question_text,
-                'options': options
-            }
-        
-        return None
-    
+
     def alternative_parsing(self, text):
         """Alternative parsing method for different text formats"""
         mcqs = []
@@ -446,7 +375,7 @@ class MCQConverter:
             content = match[1].strip()
             
             # Find options in the content
-            option_matches = re.findall(r'\((\d+)\)\s*([^(]+?)(?=\(\d+\)|$)', content)
+            option_matches = re.findall(r'\((\d+)\)(.*?)(?=\(\d+\)|$)', content, re.DOTALL)
             
             if option_matches:
                 # Extract question text (everything before first option)
@@ -455,7 +384,8 @@ class MCQConverter:
                 
                 options = []
                 for opt_num, opt_text in option_matches:
-                    options.append(f"({opt_num}) {opt_text.strip()}")
+                    opt_text = opt_text.replace("\t", "").strip().split("\n", 1)[0]             
+                    options.append(f"({opt_num}) {opt_text}")
                 
                 mcqs.append({
                     'number': int(question_num),
@@ -486,7 +416,7 @@ class MCQConverter:
         p.text = "DIRECTIONS: Select the correct alternative from the given choices."
         p.alignment = PP_ALIGN.LEFT
         p.font.name = 'Arial'
-        p.font.size = Pt(16)
+        p.font.size = Pt(20)
         p.font.color.rgb = self.question_color
         p.font.bold = True
     
@@ -528,8 +458,8 @@ class MCQConverter:
         
         # Add question text
         p = text_frame.paragraphs[0]
-        p.text = f"{mcq['number']}. {mcq['question']}"
-        p.alignment = PP_ALIGN.LEFT
+        p.text = f"{mcq['number']}. {mcq['question'].replace("\t", " ")}"
+        p.alignment = PP_ALIGN.JUSTIFY_LOW
         p.font.name = 'Arial'
         p.font.size = Pt(18)
         p.font.color.rgb = self.question_color
@@ -654,58 +584,3 @@ def convert_word_to_ppt(input_file, output_file):
     """
     converter = MCQConverter()
     return converter.convert_document(input_file, output_file)
-
-
-def main():
-    """Command-line interface"""
-    parser = argparse.ArgumentParser(
-        description='Convert Word document with MCQs to formatted PowerPoint presentation'
-    )
-    parser.add_argument(
-        'input',
-        help='Input Word document (.docx) file path'
-    )
-    parser.add_argument(
-        'output',
-        help='Output PowerPoint (.pptx) file path'
-    )
-    parser.add_argument(
-        '--verbose',
-        '-v',
-        action='store_true',
-        help='Enable verbose output'
-    )
-    
-    args = parser.parse_args()
-    
-    # Validate input file exists
-    if not os.path.exists(args.input):
-        print(f"Error: Input file not found: {args.input}")
-        return 1
-    
-    # Validate input file extension
-    if not args.input.lower().endswith('.docx'):
-        print("Error: Input file must be a .docx file")
-        return 1
-    
-    # Ensure output has .pptx extension
-    if not args.output.lower().endswith('.pptx'):
-        args.output += '.pptx'
-    
-    # Perform conversion
-    try:
-        success = convert_word_to_ppt(args.input, args.output)
-        if success:
-            if args.verbose:
-                print("Conversion completed successfully!")
-            return 0
-        else:
-            print("Conversion failed: No MCQs found")
-            return 1
-    except Exception as e:
-        print(f"Error during conversion: {e}")
-        return 1
-
-
-if __name__ == "__main__":
-    exit(main())
