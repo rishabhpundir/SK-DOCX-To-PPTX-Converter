@@ -7,13 +7,24 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 
-def add_logo(slide):
+def add_logo(slide, slide_width, slide_height):
     # Add logo to top-left corner
-    logo_path = logo_path = os.path.join(settings.BASE_DIR, "docs", "mcq_logo.png")
+    logo_path = os.path.join(settings.BASE_DIR, "docs", "mcq_logo.png")
+    bg_logo_path = os.path.join(settings.BASE_DIR, "docs", "bg_logo.png")
     logo_left = Inches(0.2)
     logo_top = Inches(0.2)
     logo_width = Inches(1.0)  # Adjust as needed
     slide.shapes.add_picture(logo_path, logo_left, logo_top, width=logo_width)
+
+    img_width = Inches(3.5)
+    img_height = Inches(3)
+
+    # Center position
+    left = (slide_width - img_width) / 2
+    top = (slide_height - img_height) / 2
+
+    # Add image
+    slide.shapes.add_picture(bg_logo_path, left, top, width=img_width, height=img_height)
     
 
 def add_yellow_border(slide):
@@ -35,7 +46,7 @@ def add_yellow_border(slide):
         border_width    # Border thickness
     )
     top_border.fill.solid()
-    top_border.fill.fore_color.rgb = RGBColor(255, 255, 0)
+    top_border.fill.fore_color.rgb = RGBColor(255, 255, 103)
     top_border.line.fill.background()
     
     # Bottom border (3/4 width from left)
@@ -47,7 +58,7 @@ def add_yellow_border(slide):
         border_width    # Border thickness
     )
     bottom_border.fill.solid()
-    bottom_border.fill.fore_color.rgb = RGBColor(255, 255, 0)
+    bottom_border.fill.fore_color.rgb = RGBColor(255, 255, 103)
     bottom_border.line.fill.background()
     
 
@@ -139,7 +150,7 @@ def create_slide(prs, question_data):
     slide_layout = prs.slide_layouts[5]  # Blank slide
     slide = prs.slides.add_slide(slide_layout)
     
-    add_logo(slide)
+    add_logo(slide, prs.slide_width, prs.slide_height)
 
     for shape in slide.shapes:
         if shape == slide.shapes.title:
@@ -214,7 +225,7 @@ def create_slide(prs, question_data):
             p.alignment = PP_ALIGN.JUSTIFY
         else:
             # This is likely an option line
-            p.font.color.rgb = RGBColor(255, 255, 0)  # Yellow for options
+            p.font.color.rgb = RGBColor(255, 255, 103)  # Yellow for options
             p.alignment = PP_ALIGN.LEFT
         
         

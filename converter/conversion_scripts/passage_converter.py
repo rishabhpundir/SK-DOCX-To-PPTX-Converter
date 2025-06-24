@@ -19,7 +19,7 @@ class WordToPowerPointConverter:
     """Main converter class that handles the complete conversion process"""
     
     def __init__(self):
-        self.chars_per_slide = 800  # Adjust based on your content needs
+        self.chars_per_slide = 725  # Adjust based on your content needs
         
     def add_logo(self, slide):
         # Add logo to top-left corner
@@ -59,7 +59,7 @@ class WordToPowerPointConverter:
 
         for passage_num, passage_text in passage_matches:
             # Clean up passage text
-            passage_text = re.sub(r'\[Extracted.*?\]', '', passage_text, flags=re.DOTALL)
+            passage_text = re.sub(r'(\[Extracted.*?\])', r'\1\n\n', passage_text, flags=re.DOTALL)
             passage_content, questions = passage_text.strip().split('\n\n\n\n', 1)
             sections['passages'].append({
                 'number': passage_num,
@@ -77,6 +77,7 @@ class WordToPowerPointConverter:
         """Create a formatted title slide"""
         slide_layout = prs.slide_layouts[0]
         slide = prs.slides.add_slide(slide_layout)
+        self.add_logo(slide)
         
         title_shape = slide.shapes.title
         subtitle_shape = slide.placeholders[1]
@@ -104,7 +105,7 @@ class WordToPowerPointConverter:
             title_shape.left = Inches(5.0)  # Same as content
             title_shape.top = Inches(0.5)   # Start at top
             title_shape.width = Inches(8)   # Same width as content
-            title_shape.height = Inches(1.0)  # Height just for title
+            title_shape.height = Inches(2)  # Height just for title
             
             # Configure title text formatting
             title_text_frame = title_shape.text_frame
@@ -118,7 +119,7 @@ class WordToPowerPointConverter:
                 directions_paragraph = title_text_frame.paragraphs[0]
                 directions_paragraph.text = directions
                 directions_paragraph.alignment = PP_ALIGN.JUSTIFY
-                directions_paragraph.runs[0].font.size = Pt(16)
+                directions_paragraph.runs[0].font.size = Pt(20)
                 directions_paragraph.runs[0].font.color.rgb = RGBColor(255, 255, 255)
                 
                 
@@ -189,7 +190,7 @@ class WordToPowerPointConverter:
         # Add new text box on the right half of the slide
         left = Inches(5.0)  # Start from middle of slide
         if title.strip() != "":
-                top = Inches(1.5)
+                top = Inches(2.25)
         else:
                 top = Inches(0.5)
         width = Inches(8)  # Right half width
@@ -271,9 +272,9 @@ class WordToPowerPointConverter:
         
         # Add new text box starting 5 inches from left
         left = Inches(5.0)
-        top = Inches(1.0)  # Start from top
+        top = Inches(0.75)  # Start from top
         width = Inches(8)
-        height = Inches(6.0)
+        height = Inches(6.25)
         
         textbox = slide.shapes.add_textbox(left, top, width, height)
         text_frame = textbox.text_frame
@@ -287,8 +288,8 @@ class WordToPowerPointConverter:
             else:
                 p = text_frame.paragraphs[0]
             p.text = question
-            p.font.size = Pt(22)
-            p.space_after = Pt(12)
+            p.font.size = Pt(21)
+            p.space_after = Pt(10)
             p.alignment = PP_ALIGN.LEFT  # Left align within the right-positioned textbox
             p.font.color.rgb = RGBColor(255, 255, 255)
             p.font.name = 'Arial'
@@ -300,8 +301,8 @@ class WordToPowerPointConverter:
     def split_passage_content(self, content):
         """Split passage content into multiple chunks if needed"""
         # Split content into sentences to avoid breaking mid-sentence
-        sentences = content.replace('\n', ' ').split('. ')
-        sentences = [s.strip() + '.' for s in sentences if s.strip()]
+        sentences = content.split('.')
+        sentences = [s + '.'if s[-1] not in ('.', ']') else s for s in [s for s in sentences if s.strip()] ]
         
         # Group sentences into slide chunks
         slide_contents = []
@@ -309,8 +310,11 @@ class WordToPowerPointConverter:
         current_length = 0
         
         for sentence in sentences:
+            self.chars_per_slide = 725
+            if len(slide_contents) == 0:
+                self.chars_per_slide = 550
             if current_length + len(sentence) > self.chars_per_slide and current_chunk:
-                slide_contents.append(' '.join(current_chunk))
+                slide_contents.append(''.join(current_chunk))
                 current_chunk = [sentence]
                 current_length = len(sentence)
             else:
@@ -318,8 +322,7 @@ class WordToPowerPointConverter:
                 current_length += len(sentence)
         
         if current_chunk:
-            slide_contents.append(' '.join(current_chunk))
-        
+            slide_contents.append(''.join(current_chunk))
         return slide_contents
 
     def create_passage_slides(self, prs, passage, directions):
@@ -339,6 +342,7 @@ class WordToPowerPointConverter:
             
             # Check if this is the last slide for this passage
             is_last_slide = (i == len(slide_contents) - 1)
+            slide_content = slide_content.strip()
             
             slide = self.create_content_slide(i, prs, directions, title, slide_content, is_passage=True, is_last_passage_slide=is_last_slide)
             created_slides.append(slide)

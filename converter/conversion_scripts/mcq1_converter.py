@@ -32,7 +32,7 @@ class MCQConverter:
         # Color definitions
         self.bg_color = RGBColor(0, 0, 0)  # Black background
         self.question_color = RGBColor(255, 255, 255)  # White for questions
-        self.option_color = RGBColor(255, 255, 0)  # Gold/Yellow for options
+        self.option_color = RGBColor(255, 255, 103)  # Gold/Yellow for options
         
         # Slide dimensions (16:9)
         self.slide_width = Inches(13.33)
@@ -44,13 +44,25 @@ class MCQConverter:
         self.top_margin = Inches(0.25)
         self.content_height = Inches(6.5)
         
-    def add_logo(self, slide):
+    def add_logo(self, slide, slide_width, slide_height):
         # Add logo to top-left corner
-        logo_path = logo_path = os.path.join(settings.BASE_DIR, "docs", "mcq_logo.png")
+        logo_path = os.path.join(settings.BASE_DIR, "docs", "mcq_logo.png")
+        bg_logo_path = os.path.join(settings.BASE_DIR, "docs", "bg_logo.png")
         logo_left = Inches(0.2)
         logo_top = Inches(0.2)
         logo_width = Inches(1.0)  # Adjust as needed
         slide.shapes.add_picture(logo_path, logo_left, logo_top, width=logo_width)
+
+        img_width = Inches(3.5)
+        img_height = Inches(3)
+
+        # Center position
+        left = (slide_width - img_width) / 2
+        top = (slide_height - img_height) / 2
+
+        # Add image
+        slide.shapes.add_picture(bg_logo_path, left, top, width=img_width, height=img_height)
+
         
     def add_yellow_border(self, slide):
         """Add a yellow border effect to the slide - only top and bottom, 3/4 width"""
@@ -71,7 +83,7 @@ class MCQConverter:
             border_width    # Border thickness
         )
         top_border.fill.solid()
-        top_border.fill.fore_color.rgb = RGBColor(255, 255, 0)
+        top_border.fill.fore_color.rgb = RGBColor(255, 255, 103)
         top_border.line.fill.background()
         
         # Bottom border (3/4 width from left)
@@ -83,7 +95,7 @@ class MCQConverter:
             border_width    # Border thickness
         )
         bottom_border.fill.solid()
-        bottom_border.fill.fore_color.rgb = RGBColor(255, 255, 0)
+        bottom_border.fill.fore_color.rgb = RGBColor(255, 255, 103)
         bottom_border.line.fill.background()
     
     def extract_text_with_positions(self, docx_path):
@@ -342,40 +354,24 @@ class MCQConverter:
                     if cell.text.strip():
                         current_text += cell.text + "\n"
         
-        # Look for question patterns like **1.**, **2.**, etc.
-        question_pattern = r'\*\*(\d+)\.\*\*'
-        questions = re.split(question_pattern, current_text)
-        
-        # Process each question section
-        for i in range(1, len(questions), 2):
-            if i + 1 < len(questions):
-                question_num = questions[i]
-                question_content = questions[i + 1]
-                
-                mcq = self.parse_question_content(question_num, question_content)
-                if mcq:
-                    mcqs.append(mcq)
-        
-        # If no questions found with ** pattern, try alternative parsing
-        if not mcqs:
-            mcqs = self.alternative_parsing(current_text)
-            
+        # Use regex to find MCQs in the text
+        mcqs = self.parse_mcqs(current_text)
         return mcqs
 
-    def alternative_parsing(self, text):
+    def parse_mcqs(self, text):
         """Alternative parsing method for different text formats"""
         mcqs = []
         
         # Look for numbered questions followed by options
-        pattern = r'(?<=\s)(\d{1,2})\.\s+(.*?)(?=\s\d{1,2}\.\s+|\Z)'
+        pattern = r'(?<=\s)(\d{1,2})\.\t(.*?)(?=\s\d{1,2}\.\t|\Z)'
         matches = re.findall(pattern, text, re.DOTALL)
-        
+
         for match in matches:
             question_num = match[0]
             content = match[1].strip()
             
             # Find options in the content
-            option_matches = re.findall(r'\((\d+)\)(.*?)(?=\(\d+\)|$)', content, re.DOTALL)
+            option_matches = re.findall(r'\((\d+)\)\s*\t(.*?)(?=\(\d+\)\s*\t|$)', content, re.DOTALL)
             
             if option_matches:
                 # Extract question text (everything before first option)
@@ -392,7 +388,7 @@ class MCQConverter:
                     'question': question_text,
                     'options': options
                 })
-        
+
         return mcqs
     
     def set_slide_background(self, slide):
@@ -426,7 +422,7 @@ class MCQConverter:
         slide_layout = prs.slide_layouts[6]  # Blank layout
         slide = prs.slides.add_slide(slide_layout)
         
-        self.add_logo(slide)
+        self.add_logo(slide, prs.slide_width, prs.slide_height)
         
         # Set background
         self.set_slide_background(slide)
@@ -518,13 +514,14 @@ class MCQConverter:
                         image_left = self.left_margin
                     
                     # Add image to slide
-                    slide.shapes.add_picture(
-                        image_path,
-                        image_left,
-                        image_top,
-                        width=image_width,
-                        height=image_height
-                    )
+                    if aspect_ratio < 25:
+                        slide.shapes.add_picture(
+                            image_path,
+                            image_left,
+                            image_top,
+                            width=image_width,
+                            height=image_height
+                        )
                     
                 except Exception as e:
                     print(f"Error adding image for question {mcq['number']}: {e}")
@@ -542,7 +539,7 @@ class MCQConverter:
         # Extract MCQs
         mcqs = self.extract_mcqs_from_document(input_docx)
         print(f"Found {len(mcqs)} MCQs")
-        
+
         if not mcqs:
             print("No MCQs found in the document!")
             return False
