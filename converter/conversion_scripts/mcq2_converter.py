@@ -356,9 +356,9 @@ def extract_diagrams_from_pages(page_paths, output_dir, known_questions=None):
                     
                     # Check if it's circular/oval (many vertices) or rectangular
                     if len(approx) >= 6 and 0.8 < aspect_ratio < 1.2:
-                        pad = 65  # Circular/oval shape
+                        pad = 75  # Circular/oval shape
                     else:
-                        pad = 20    # Rectangular shape
+                        pad = 30    # Rectangular shape
                     
                     # Crop with padding
                     x1 = max(x - pad, 0)
@@ -536,7 +536,7 @@ def create_question_slide(prs, question_data):
     
     # Add question number and text
     p = text_frame.add_paragraph()
-    p.text = question_data['content']
+    p.text = question_data['content'].replace('\n', '').replace('\t', '').strip()
     p.font.name = 'Arial'
     p.font.size = Pt(24)
     p.font.color.rgb = RGBColor(255, 255, 255)

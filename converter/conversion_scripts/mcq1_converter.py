@@ -7,9 +7,8 @@ Converts Word documents containing MCQs directly to formatted PowerPoint present
 import re
 import os
 import cv2
+import uuid
 import shutil
-import zipfile
-import argparse
 import subprocess
 import pytesseract
 from PIL import Image
@@ -266,14 +265,17 @@ class MCQConverter:
                         cropped = img[y1:y2, x1:x2]
                         
                         # Save image with question number in filename
-                        image_filename = f"question_{question_num}_image.png"
+                        timestamp = str(uuid.uuid4()).replace('-', '')[:8]
+                        image_filename = f"question_{question_num}_image_{timestamp}.png"
                         image_path = os.path.join(output_dir, image_filename)
                         cv2.imwrite(image_path, cropped)
                         
                         # Store in results
-                        results[question_num] = image_path
+                        if results[question_num] is None:
+                            results[question_num] = [image_path]
+                        else:
+                            results[question_num].append(image_path)
                         print(f"[✓] Found image for Question {question_num}")
-        
         return results
 
     def extract_mcq_images(self, docx_path):
@@ -321,20 +323,7 @@ class MCQConverter:
 
         print(f"\n[✓] Extraction complete. Found {len(question_image_map)} images out of {len(all_question_numbers)} questions.")
         return result
-
-    def extract_images_from_docx(self, docx_path):
-        """Extract all images from the Word document"""
-        images = {}
-        try:
-            with zipfile.ZipFile(docx_path, 'r') as doc_zip:
-                image_files = [f for f in doc_zip.namelist() if f.startswith('word/media/')]
-                for img_file in image_files:
-                    img_name = os.path.basename(img_file)
-                    img_data = doc_zip.read(img_file)
-                    images[img_name] = img_data
-        except Exception as e:
-            print(f"Error extracting images: {e}")
-        return images
+    
     
     def extract_mcqs_from_document(self, doc_path):
         """Extract all MCQs from the Word document"""
@@ -475,56 +464,57 @@ class MCQConverter:
         
         # Add image if available
         if mcq_image and mcq_image.get('image'):
-            image_path = mcq_image['image']
-            if os.path.exists(image_path):
-                try:
-                    # Open image to get dimensions
-                    with Image.open(image_path) as img:
-                        img_width, img_height = img.size
-                        aspect_ratio = img_width / img_height
-                    
-                    # Image should take up bottom 1/3 of text box (2.25 inches)
-                    max_image_height = Inches(2.25)
-                    max_image_width = self.content_width - Inches(0.4)  # Leave some margin
-                    
-                    # Scale image to fit while maintaining aspect ratio
-                    if (max_image_width / max_image_height) > aspect_ratio:
-                        # Height is the limiting factor
-                        image_height = max_image_height
-                        image_width = image_height * aspect_ratio
-                    else:
-                        # Width is the limiting factor
-                        image_width = max_image_width
-                        image_height = image_width / aspect_ratio
-                    
-                    # Ensure image doesn't exceed maximum dimensions
-                    if image_height > max_image_height:
-                        image_height = max_image_height
-                        image_width = image_height * aspect_ratio
-                    
-                    # Calculate vertical position for image
-                    # Place it in the bottom 1/3 of the text box
-                    text_box_bottom = top_margin + available_height
-                    image_top = text_box_bottom - Inches(2.50)  # Small padding from bottom
-                    
-                    # Center the image horizontally if it's smaller than content width
-                    if image_width < self.content_width:
-                        image_left = self.left_margin + (self.content_width - image_width) / 2
-                    else:
-                        image_left = self.left_margin
-                    
-                    # Add image to slide
-                    if aspect_ratio < 25:
-                        slide.shapes.add_picture(
-                            image_path,
-                            image_left,
-                            image_top,
-                            width=image_width,
-                            height=image_height
-                        )
-                    
-                except Exception as e:
-                    print(f"Error adding image for question {mcq['number']}: {e}")
+            image_paths = mcq_image['image']
+            for image_path in image_paths:
+                if os.path.exists(image_path):
+                    try:
+                        # Open image to get dimensions
+                        with Image.open(image_path) as img:
+                            img_width, img_height = img.size
+                            aspect_ratio = img_width / img_height
+                        
+                        # Image should take up bottom 1/3 of text box (2.25 inches)
+                        max_image_height = Inches(2.25)
+                        max_image_width = self.content_width - Inches(0.4)  # Leave some margin
+                        
+                        # Scale image to fit while maintaining aspect ratio
+                        if (max_image_width / max_image_height) > aspect_ratio:
+                            # Height is the limiting factor
+                            image_height = max_image_height
+                            image_width = image_height * aspect_ratio
+                        else:
+                            # Width is the limiting factor
+                            image_width = max_image_width
+                            image_height = image_width / aspect_ratio
+                        
+                        # Ensure image doesn't exceed maximum dimensions
+                        if image_height > max_image_height:
+                            image_height = max_image_height
+                            image_width = image_height * aspect_ratio
+                        
+                        # Calculate vertical position for image
+                        # Place it in the bottom 1/3 of the text box
+                        text_box_bottom = top_margin + available_height
+                        image_top = text_box_bottom - Inches(2.50)  # Small padding from bottom
+                        
+                        # Center the image horizontally if it's smaller than content width
+                        if image_width < self.content_width:
+                            image_left = self.left_margin + (self.content_width - image_width) / 2
+                        else:
+                            image_left = self.left_margin
+                        
+                        # Add image to slide
+                        if aspect_ratio < 25:
+                            slide.shapes.add_picture(
+                                image_path,
+                                image_left,
+                                image_top,
+                                width=image_width,
+                                height=image_height
+                            )
+                        
+                    except Exception as e:
+                        print(f"Error adding image for question {mcq['number']}: {e}")
                     
         self.add_yellow_border(slide)
                     
