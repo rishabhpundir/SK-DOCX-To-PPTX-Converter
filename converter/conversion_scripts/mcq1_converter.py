@@ -245,9 +245,9 @@ class MCQConverter:
                     aspect_ratio = float(w) / h
                     
                     if len(approx) >= 6 and 0.8 < aspect_ratio < 1.2:
-                        pad = 125  # Circular/oval shape
+                        pad = 140 # Circular/oval shape
                     else:
-                        pad = 5    # Rectangular shape
+                        pad = 15   # Rectangular shape
                     
                     # Find which question this image belongs to
                     image_center_y = y + h // 2
