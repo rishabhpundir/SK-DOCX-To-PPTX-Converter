@@ -15,6 +15,7 @@ from PIL import Image
 from pathlib import Path
 from docx import Document
 from pptx import Presentation
+from bs4 import BeautifulSoup
 from pptx.util import Inches, Pt
 from django.conf import settings
 from pptx.enum.text import PP_ALIGN
@@ -27,6 +28,11 @@ class MCQConverter:
         # MCQ parsing patterns
         self.mcq_pattern = r'\*\*(\d+)\.\*\*\s*(.*?)(?=\*\*\d+\.\*\*|\Z)'
         self.option_pattern = r'\\?\((\d+)\)\s*([^\\(]+?)(?=\\?\(\d+\)|$)'
+        self.SUPERSCRIPTS = {
+            '0': '⁰', '1': '¹', '2': '²', '3': '³',
+            '4': '⁴', '5': '⁵', '6': '⁶',
+            '7': '⁷', '8': '⁸', '9': '⁹'
+        }
         
         # Color definitions
         self.bg_color = RGBColor(0, 0, 0)  # Black background
@@ -324,61 +330,123 @@ class MCQConverter:
         print(f"\n[✓] Extraction complete. Found {len(question_image_map)} images out of {len(all_question_numbers)} questions.")
         return result
     
+
+    def convert_docx_to_html(self, docx_path):
+        output_dir = os.path.join("test_files" , "temp")
+        os.makedirs(output_dir, exist_ok=True)
+        html_file = os.path.join(output_dir, os.path.splitext(os.path.basename(docx_path))[0] + ".html")
+
+        subprocess.run([
+            "soffice", "--headless", "--convert-to", "html:XHTML Writer File:UTF8", "--outdir", output_dir, docx_path
+        ], check=True)
+
+        if not os.path.exists(html_file):
+            raise FileNotFoundError("HTML file not generated")
+        return html_file
+
+
+    def replace_mathml_superscripts(self, soup):
+        for msup in soup.find_all('msup'):
+            base_elem = msup.find(['mi', 'mrow'])
+            exp_elem = msup.find('mn')
+
+            base_text = ''.join(base_elem.stripped_strings) if base_elem else ''
+            exp_text = ''.join(exp_elem.stripped_strings) if exp_elem else ''
+
+            # Convert digits in exponent to superscripts
+            superscript = ''.join(self.SUPERSCRIPTS.get(ch, ch) for ch in exp_text)
+
+            # Replace <msup> with plain string
+            msup.replace_with(f"{base_text}{superscript}")
+        return soup
+
+
+    def replace_mathml_elements(self, soup):
+        # Superscripts: <msup>
+        for msup in soup.find_all('msup'):
+            base_elem = msup.find(['mi', 'mrow'])
+            exp_elem = msup.find('mn')
+
+            base_text = ''.join(base_elem.stripped_strings) if base_elem else ''
+            exp_text = ''.join(exp_elem.stripped_strings) if exp_elem else ''
+
+            # Convert digits in exponent to superscript Unicode
+            superscript = ''.join(self.SUPERSCRIPTS.get(ch, ch) for ch in exp_text)
+
+            msup.replace_with(f"{base_text}{superscript}")
+
+        # Square roots: <msqrt>
+        for msqrt in soup.find_all('msqrt'):
+            content = ''.join(msqrt.stripped_strings)
+            msqrt.replace_with(f"√{content}")
+
+        # Fractions: <mfrac>
+        for mfrac in soup.find_all('mfrac'):
+            num_elem = mfrac.find_all(['mn', 'mi'])
+            numerator = ''.join(num_elem[0].stripped_strings) if len(num_elem) > 0 else ''
+            denominator = ''.join(num_elem[1].stripped_strings) if len(num_elem) > 1 else ''
+            mfrac.replace_with(f"({numerator}/{denominator})")
+        return soup
+
+
+    def remove_tables_and_graphics(self, soup):
+        # Remove all <table> tags and their contents
+        for table in soup.find_all('table'):
+            table.decompose()
+
+        # Remove all tags with a class starting with "graphic-"
+        for tag in soup.find_all(True):
+            if not tag.name:
+                continue
+            class_list = tag.get('class')
+            if class_list and any(cls.startswith('graphic-') for cls in class_list):
+                tag.decompose()
+        return soup
+
+
+    def split_mcq_blocks(self, text):
+        pattern = re.compile(r'\n{3,}\s*\d{1,2}\.\s*\n{3,}')
+        matches = list(pattern.finditer(text))
+
+        # Build list of full MCQ blocks
+        blocks = []
+        for i, match in enumerate(matches):
+            start = match.start()
+            end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+            blocks.append(text[start:end].strip())
+        return blocks
+
+
+    def parse_html(self, html_file_path):
+        with open(html_file_path, 'r', encoding='utf-8') as file:
+            soup = BeautifulSoup(file, 'html.parser')
+        
+        exp_soup = self.replace_mathml_superscripts(soup)
+        tables_removed_soup = self.remove_tables_and_graphics(exp_soup)
+        final_soup = self.replace_mathml_elements(tables_removed_soup)
+        full_text = final_soup.get_text(separator='\n\n\n', strip=True).replace("\xa0", "")
+        if "\n\n\n." in full_text:
+            full_text = full_text.replace("\n\n\n.", ".")
+        blocks = self.split_mcq_blocks(full_text)
+
+        mcqs = []
+        current_mcq = {}
+        for index, block in enumerate(blocks, start=1):
+            lines = block.split('\n\n\n')
+            combined = ' '.join(line.strip() for line in lines if line.strip())
+            option_parts = re.split(r'(?=\(\d+\))', combined)
+            question_text = option_parts[0].strip()
+            options = [opt.strip() for opt in option_parts[1:] if opt.strip()]
+
+            # Build the dictionary
+            current_mcq = {
+                "number": index,
+                "question": question_text,
+                "options": options
+            }
+            mcqs.append(current_mcq)
+        return mcqs
     
-    def extract_mcqs_from_document(self, doc_path):
-        """Extract all MCQs from the Word document"""
-        doc = Document(doc_path)
-        mcqs = []
-        current_text = ""
-        
-        # Extract all text content
-        for paragraph in doc.paragraphs:
-            if paragraph.text.strip():
-                current_text += paragraph.text + "\n"
-        
-        # Also extract text from tables
-        for table in doc.tables:
-            for row in table.rows:
-                for cell in row.cells:
-                    if cell.text.strip():
-                        current_text += cell.text + "\n"
-        
-        # Use regex to find MCQs in the text
-        mcqs = self.parse_mcqs(current_text)
-        return mcqs
-
-    def parse_mcqs(self, text):
-        """Alternative parsing method for different text formats"""
-        mcqs = []
-        
-        # Look for numbered questions followed by options
-        pattern = r'(?<=\s)(\d{1,2})\.\t(.*?)(?=\s\d{1,2}\.\t|\Z)'
-        matches = re.findall(pattern, text, re.DOTALL)
-
-        for match in matches:
-            question_num = match[0]
-            content = match[1].strip()
-            
-            # Find options in the content
-            option_matches = re.findall(r'\((\d+)\)\s*\t(.*?)(?=\(\d+\)\s*\t|$)', content, re.DOTALL)
-            
-            if option_matches:
-                # Extract question text (everything before first option)
-                first_option_pos = content.find(f"({option_matches[0][0]})")
-                question_text = content[:first_option_pos].strip()
-                
-                options = []
-                for opt_num, opt_text in option_matches:
-                    opt_text = opt_text.replace("\t", "").strip().split("\n", 1)[0]             
-                    options.append(f"({opt_num}) {opt_text}")
-                
-                mcqs.append({
-                    'number': int(question_num),
-                    'question': question_text,
-                    'options': options
-                })
-
-        return mcqs
     
     def set_slide_background(self, slide):
         """Set slide background to black"""
@@ -527,7 +595,8 @@ class MCQConverter:
         images_dict = self.extract_mcq_images(input_docx)
         
         # Extract MCQs
-        mcqs = self.extract_mcqs_from_document(input_docx)
+        html_file = self.convert_docx_to_html(input_docx)
+        mcqs = self.parse_html(html_file)
         print(f"Found {len(mcqs)} MCQs")
 
         if not mcqs:

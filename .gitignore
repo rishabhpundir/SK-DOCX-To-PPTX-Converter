@@ -183,4 +183,5 @@ chromium*/
 test.py
 .DS_Store
 media/
+temp/
 extracted_images/
