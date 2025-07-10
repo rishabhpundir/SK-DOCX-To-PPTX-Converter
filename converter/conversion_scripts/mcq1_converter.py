@@ -346,6 +346,7 @@ class MCQConverter:
 
 
     def replace_mathml_superscripts(self, soup):
+        # Handle <msup> tags as before
         for msup in soup.find_all('msup'):
             base_elem = msup.find(['mi', 'mrow'])
             exp_elem = msup.find('mn')
@@ -353,11 +354,25 @@ class MCQConverter:
             base_text = ''.join(base_elem.stripped_strings) if base_elem else ''
             exp_text = ''.join(exp_elem.stripped_strings) if exp_elem else ''
 
-            # Convert digits in exponent to superscripts
             superscript = ''.join(self.SUPERSCRIPTS.get(ch, ch) for ch in exp_text)
-
-            # Replace <msup> with plain string
             msup.replace_with(f"{base_text}{superscript}")
+
+        # Handle <span> containing <math> with numeric sibling
+        for span in soup.find_all('span'):
+            if span.find('math'):
+                next_sibling = span.find_next_sibling('span')
+                if next_sibling and next_sibling.string and next_sibling.string.strip().isdigit():
+                    digits = next_sibling.string.strip()
+                    superscript = ''.join(self.SUPERSCRIPTS.get(ch, ch) for ch in digits)
+
+                    math_text = ''.join(span.stripped_strings)
+                    next_sibling.decompose()
+                    span.replace_with(f"{math_text}{superscript}")
+
+        # NEW: Replace all spans with class "text-T22" containing "2" or "3"
+        for span in soup.find_all('span', class_='text-T22'):
+            if span.string and span.string.strip() in ['2', '3']:
+                span.string.replace_with(self.SUPERSCRIPTS.get(span.string.strip(), span.string.strip()))
         return soup
 
 
@@ -511,7 +526,7 @@ class MCQConverter:
         
         # Add question text
         p = text_frame.paragraphs[0]
-        p.text = f"{mcq['number']}. {mcq['question'].replace("\t", " ")}"
+        p.text = f"{mcq['question'].replace("\t", " ")}"
         p.alignment = PP_ALIGN.JUSTIFY_LOW
         p.font.name = 'Arial'
         p.font.size = Pt(18)
