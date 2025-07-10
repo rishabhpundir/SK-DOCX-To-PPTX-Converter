@@ -369,8 +369,8 @@ class MCQConverter:
                     next_sibling.decompose()
                     span.replace_with(f"{math_text}{superscript}")
 
-        # NEW: Replace all spans with class "text-T22" containing "2" or "3"
-        for span in soup.find_all('span', class_='text-T22'):
+        # NEW: Replace spans where class contains "text-T" and text is 2 or 3
+        for span in soup.find_all('span', class_=re.compile(r'text-T')):
             if span.string and span.string.strip() in ['2', '3']:
                 span.string.replace_with(self.SUPERSCRIPTS.get(span.string.strip(), span.string.strip()))
         return soup
